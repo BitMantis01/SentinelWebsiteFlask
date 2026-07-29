@@ -1,0 +1,28 @@
+Flask
+Werkzeug
+
+# Database
+SQLAlchemy
+Flask-SQLAlchemy
+psycopg2-binary
+
+# Authentication & Security
+Flask-Bcrypt
+Flask-Login
+Flask-WTF
+Flask-Limiter
+flask-talisman
+
+# WebSocket & Real-time
+Flask-SocketIO
+eventlet
+
+# Data Science & Prediction
+statsmodels
+scikit-learn
+pandas
+numpy
+# Server & Utilities
+gunicorn
+python-dotenv
+requests

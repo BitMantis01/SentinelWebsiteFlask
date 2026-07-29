@@ -1,0 +1,568 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Environment - SENTINEL Dashboard{% endblock %}
+{% block page_title %}Environmental Monitoring{% endblock %}
+
+{% block content %}
+<!-- Device Selection -->
+<div class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div class="mb-4 sm:mb-0">
+            <label for="device-select" class="block text-sm font-medium text-gray-700 mb-2">Select Environmental Device:</label>
+            <select id="device-select" class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Loading devices...</option>
+            </select>
+        </div>
+        <div class="flex items-center space-x-2">
+            <span class="text-sm font-medium text-gray-700">Show:</span>
+            <button onclick="setDataLimit(25, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">25</button>
+            <button onclick="setDataLimit(50, this)" class="data-filter-btn px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">50</button>
+            <button onclick="setDataLimit(100, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">100</button>
+            <button onclick="setDataLimit(0, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">All</button>
+        </div>
+    </div>
+</div>
+
+<div class="space-y-6">
+    <!-- Current Values -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="bg-white p-5 rounded-lg shadow-md">
+            <div class="flex items-center space-x-4 mb-3">
+                <div id="temp-status-icon" class="bg-orange-100 p-3 rounded-full">
+                    <svg class="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Temperature</h3>
+                    <p id="current-temp" class="text-2xl font-bold text-gray-800">-- °C</p>
+                </div>
+            </div>
+            <div class="text-xs text-gray-600">
+                <div class="flex items-center justify-between">
+                    <span>Safe for newborns:</span>
+                    <span id="temp-status" class="font-medium">20-24°C</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div id="temp-bar" class="h-2 rounded-full bg-gray-400" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-5 rounded-lg shadow-md">
+            <div class="flex items-center space-x-4 mb-3">
+                <div id="humidity-status-icon" class="bg-blue-100 p-3 rounded-full">
+                    <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Humidity</h3>
+                    <p id="current-humidity" class="text-2xl font-bold text-gray-800">-- %</p>
+                </div>
+            </div>
+            <div class="text-xs text-gray-600">
+                <div class="flex items-center justify-between">
+                    <span>Safe for newborns:</span>
+                    <span id="humidity-status" class="font-medium">40-60%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div id="humidity-bar" class="h-2 rounded-full bg-gray-400" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-5 rounded-lg shadow-md">
+            <div class="flex items-center space-x-4 mb-3">
+                <div id="aqi-status-icon" class="bg-green-100 p-3 rounded-full">
+                    <svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Air Quality</h3>
+                    <p id="current-aqi" class="text-2xl font-bold text-gray-800">-- AQI</p>
+                </div>
+            </div>
+            <div class="text-xs text-gray-600">
+                <div class="flex items-center justify-between">
+                    <span>Safe for newborns:</span>
+                    <span id="aqi-status" class="font-medium">0-50 AQI</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div id="aqi-bar" class="h-2 rounded-full bg-gray-400" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white p-5 rounded-lg shadow-md">
+            <div class="flex items-center space-x-4 mb-3">
+                <div id="sound-status-icon" class="bg-purple-100 p-3 rounded-full">
+                    <svg class="w-6 h-6 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.858 17.142a5 5 0 010-7.072m2.828 9.9a9 9 0 010-12.728"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18.5a4.5 4.5 0 100-9 4.5 4.5 0 000 9z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-sm font-medium text-gray-500">Sound Level</h3>
+                    <p id="current-sound" class="text-2xl font-bold text-gray-800">-- dB</p>
+                </div>
+            </div>
+            <div class="text-xs text-gray-600">
+                <div class="flex items-center justify-between">
+                    <span>Safe for newborns:</span>
+                    <span id="sound-status" class="font-medium">≤45 dB</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div id="sound-bar" class="h-2 rounded-full bg-gray-400" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts in a 2x2 grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Temperature</h2>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="temperatureChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Humidity</h2>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="humidityChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Air Quality Index</h2>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="aqiChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">Sound Levels</h2>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="soundChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Table -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">Environmental History (Last 10 Readings)</h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Temperature</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Humidity</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Air Quality</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sound Level</th>
+                    </tr>
+                </thead>
+                <tbody id="environment-history" class="text-gray-700 divide-y divide-gray-200">
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- No Devices Modal -->
+<div id="no-devices-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden items-center justify-center">
+    <div class="relative p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <h3 class="text-lg font-bold text-gray-900">No Environmental Devices</h3>
+            <div class="mt-2 px-7 py-3">
+                <p class="text-sm text-gray-500">
+                    You don't have any environmental monitoring devices linked to your account.
+                    Please contact your administrator to link devices.
+                </p>
+            </div>
+            <div class="items-center px-4 py-3">
+                <button onclick="closeModal('no-devices-modal')" class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let charts = {};
+let currentDataLimit = 50;
+let refreshInterval;
+
+// Modal functions
+function openModal(modalId) {
+    document.getElementById(modalId).classList.remove('hidden');
+    document.getElementById(modalId).classList.add('flex');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+    document.getElementById(modalId).classList.remove('flex');
+}
+
+// Chart creation helper
+function createChart(canvasId, label, color, yAxisOptions = {}) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    if (!ctx) {
+        console.error(`Canvas with id ${canvasId} not found.`);
+        return null;
+    }
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, `${color}40`); // ~25% opacity
+    gradient.addColorStop(1, `${color}00`); // 0% opacity
+
+    return new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: label,
+                data: [],
+                borderColor: color,
+                backgroundColor: gradient,
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: color,
+                pointBorderColor: '#ffffff',
+                pointBorderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            spanGaps: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: true,
+                    backgroundColor: '#111827', // gray-900
+                    titleColor: '#ffffff',
+                    bodyColor: '#ffffff',
+                    borderColor: '#374151', // gray-700
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 12,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} ${yAxisOptions.unit || ''}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        tooltipFormat: 'MMM dd, HH:mm:ss',
+                        displayFormats: {
+                            minute: 'HH:mm',
+                            hour: 'HH:mm',
+                            day: 'MMM dd'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        color: '#6b7280' // gray-500
+                    }
+                },
+                y: {
+                    beginAtZero: yAxisOptions.beginAtZero !== undefined ? yAxisOptions.beginAtZero : false,
+                    min: yAxisOptions.min,
+                    max: yAxisOptions.max,
+                    grid: {
+                        color: '#e5e7eb', // gray-200
+                        borderDash: [2, 4],
+                    },
+                    ticks: {
+                        color: '#6b7280', // gray-500
+                        stepSize: yAxisOptions.stepSize,
+                        callback: function(value) {
+                            return value + (yAxisOptions.unit ? ` ${yAxisOptions.unit}` : '');
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+
+// Chart initialization
+function initCharts() {
+    charts.temperature = createChart('temperatureChart', 'Temperature', '#f97316', { unit: '°C' });
+    charts.humidity = createChart('humidityChart', 'Humidity', '#3b82f6', { unit: '%', min: 0, max: 100, stepSize: 10, beginAtZero: true });
+    charts.aqi = createChart('aqiChart', 'AQI', '#22c55e', { unit: 'AQI', min: 0, max: 500, beginAtZero: true });
+    charts.sound = createChart('soundChart', 'Sound Level', '#9333ea', { unit: 'dB', min: 0, max: 120, beginAtZero: true });
+}
+
+// Device loading
+function loadDevices() {
+    try {
+        const envDevices = [{% for device in current_user.envhub_boxes %}{"id": "{{ device.device_id }}", "name": "{{ device.name }}"}{% if not loop.last %},{% endif %}{% endfor %}];
+        const select = document.getElementById('device-select');
+        select.innerHTML = '';
+        
+        if (envDevices.length === 0) {
+            select.innerHTML = '<option value="">No devices linked</option>';
+            openModal('no-devices-modal');
+            return;
+        }
+        
+        select.innerHTML = '<option value="">Select a device...</option>';
+        envDevices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            option.textContent = `${device.name} (${device.id})`;
+            select.appendChild(option);
+        });
+        
+        if (envDevices.length > 0) {
+            select.value = envDevices[0].id;
+            fetchAllData();
+        }
+    } catch (error) {
+        console.error('Error loading devices:', error);
+        document.getElementById('device-select').innerHTML = '<option value="">Error loading devices</option>';
+    }
+}
+
+function fetchAllData() {
+    loadEnvironmentData();
+    loadCurrentValues();
+}
+
+// Current values loading
+function loadCurrentValues() {
+    const deviceId = document.getElementById('device-select').value;
+    if (!deviceId) return;
+    
+    fetch(`/api/dashboard/environment?device_id=${deviceId}&limit=1`)
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load current values'))
+        .then(data => updateCurrentValues(data.data))
+        .catch(error => console.error('Error loading current values:', error));
+}
+
+// Data loading for charts and table
+function loadEnvironmentData() {
+    const deviceId = document.getElementById('device-select').value;
+    if (!deviceId) return;
+    
+    let url = `/api/dashboard/environment?device_id=${deviceId}`;
+    if (currentDataLimit > 0) {
+        url += `&limit=${currentDataLimit}`;
+    }
+    
+    fetch(url)
+        .then(response => response.ok ? response.json() : Promise.reject('Failed to load environment data'))
+        .then(data => {
+            updateCharts(data.data);
+            updateHistoryTable(data.data);
+        })
+        .catch(error => console.error('Error loading environment data:', error));
+}
+
+// Chart updates
+function updateCharts(data) {
+    if (!data || data.length === 0) return;
+
+    const chartData = data.map(d => ({
+        x: new Date(d.timestamp + 'Z'),
+        temp: d.temp > -50 ? d.temp : null,
+        humidity: d.humidity >= 0 ? d.humidity : null,
+        aqi: d.aqi >= 0 ? d.aqi : null,
+        sound: d.mic >= 0 ? d.mic : null
+    }));
+
+    charts.temperature.data.datasets[0].data = chartData.map(d => ({ x: d.x, y: d.temp }));
+    charts.humidity.data.datasets[0].data = chartData.map(d => ({ x: d.x, y: d.humidity }));
+    charts.aqi.data.datasets[0].data = chartData.map(d => ({ x: d.x, y: d.aqi }));
+    charts.sound.data.datasets[0].data = chartData.map(d => ({ x: d.x, y: d.sound }));
+
+    Object.values(charts).forEach(chart => chart.update());
+}
+
+// Current values update
+function updateCurrentValues(data) {
+    const latest = data && data.length > 0 ? data[0] : {};
+    
+    // Update temperature
+    const temp = latest.temp;
+    document.getElementById('current-temp').textContent = temp ? `${temp.toFixed(1)} °C` : '-- °C';
+    updateSafetyStatus('temp', temp, 20, 24);
+    
+    // Update humidity
+    const humidity = latest.humidity;
+    document.getElementById('current-humidity').textContent = humidity ? `${humidity.toFixed(1)} %` : '-- %';
+    updateSafetyStatus('humidity', humidity, 40, 60);
+    
+    // Update AQI
+    const aqi = latest.aqi;
+    document.getElementById('current-aqi').textContent = aqi ? `${aqi} AQI` : '-- AQI';
+    updateSafetyStatus('aqi', aqi, 0, 50);
+    
+    // Update sound
+    const sound = latest.mic;
+    document.getElementById('current-sound').textContent = sound ? `${sound.toFixed(1)} dB` : '-- dB';
+    updateSafetyStatus('sound', sound, 0, 45);
+}
+
+// Safety status update function
+function updateSafetyStatus(type, value, minSafe, maxSafe) {
+    const statusIcon = document.getElementById(`${type}-status-icon`);
+    const statusText = document.getElementById(`${type}-status`);
+    const statusBar = document.getElementById(`${type}-bar`);
+    
+    if (!value || value === null || value === undefined) {
+        // No data available
+        statusIcon.className = 'bg-gray-100 p-3 rounded-full';
+        statusIcon.querySelector('svg').className = 'w-6 h-6 text-gray-500';
+        statusText.textContent = 'No data';
+        statusText.className = 'font-medium text-gray-500';
+        statusBar.className = 'h-2 rounded-full bg-gray-400';
+        statusBar.style.width = '0%';
+        return;
+    }
+    
+    let status, iconClass, textClass, barClass, barWidth;
+    
+    if (type === 'sound') {
+        // For sound, safe is below the threshold
+        if (value <= maxSafe) {
+            status = 'SAFE';
+            iconClass = 'bg-green-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-green-500';
+            textClass = 'font-medium text-green-600';
+            barClass = 'h-2 rounded-full bg-green-500';
+            barWidth = Math.min((value / maxSafe) * 100, 100);
+        } else if (value <= maxSafe * 1.5) {
+            status = 'CAUTION';
+            iconClass = 'bg-yellow-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-yellow-500';
+            textClass = 'font-medium text-yellow-600';
+            barClass = 'h-2 rounded-full bg-yellow-500';
+            barWidth = 100;
+        } else {
+            status = 'DANGER';
+            iconClass = 'bg-red-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-red-500';
+            textClass = 'font-medium text-red-600';
+            barClass = 'h-2 rounded-full bg-red-500';
+            barWidth = 100;
+        }
+    } else if (type === 'aqi') {
+        // For AQI, safe is below the threshold
+        if (value <= maxSafe) {
+            status = 'SAFE';
+            iconClass = 'bg-green-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-green-500';
+            textClass = 'font-medium text-green-600';
+            barClass = 'h-2 rounded-full bg-green-500';
+            barWidth = (value / maxSafe) * 100;
+        } else if (value <= 100) {
+            status = 'MODERATE';
+            iconClass = 'bg-yellow-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-yellow-500';
+            textClass = 'font-medium text-yellow-600';
+            barClass = 'h-2 rounded-full bg-yellow-500';
+            barWidth = 100;
+        } else {
+            status = 'UNHEALTHY';
+            iconClass = 'bg-red-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-red-500';
+            textClass = 'font-medium text-red-600';
+            barClass = 'h-2 rounded-full bg-red-500';
+            barWidth = 100;
+        }
+    } else {
+        // For temperature and humidity, safe is within range
+        if (value >= minSafe && value <= maxSafe) {
+            status = 'SAFE';
+            iconClass = 'bg-green-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-green-500';
+            textClass = 'font-medium text-green-600';
+            barClass = 'h-2 rounded-full bg-green-500';
+            barWidth = 100;
+        } else if ((value >= minSafe - 2 && value < minSafe) || (value > maxSafe && value <= maxSafe + 2)) {
+            status = 'CAUTION';
+            iconClass = 'bg-yellow-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-yellow-500';
+            textClass = 'font-medium text-yellow-600';
+            barClass = 'h-2 rounded-full bg-yellow-500';
+            barWidth = 75;
+        } else {
+            status = 'DANGER';
+            iconClass = 'bg-red-100 p-3 rounded-full';
+            statusIcon.querySelector('svg').className = 'w-6 h-6 text-red-500';
+            textClass = 'font-medium text-red-600';
+            barClass = 'h-2 rounded-full bg-red-500';
+            barWidth = 50;
+        }
+    }
+    
+    statusIcon.className = iconClass;
+    statusText.textContent = status;
+    statusText.className = textClass;
+    statusBar.className = barClass;
+    statusBar.style.width = `${barWidth}%`;
+}
+
+// History table update
+function updateHistoryTable(data) {
+    const tbody = document.getElementById('environment-history');
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">No environmental data available</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = data.slice(0, 10).map(d => `
+        <tr class="hover:bg-gray-50">
+            <td class="py-3 px-4 text-sm text-gray-900">${formatToPhilippineTime(d.timestamp)}</td>
+            <td class="py-3 px-4 text-sm">${d.temp ? d.temp.toFixed(1) + '°C' : '--'}</td>
+            <td class="py-3 px-4 text-sm">${d.humidity ? d.humidity.toFixed(1) + '%' : '--'}</td>
+            <td class="py-3 px-4 text-sm">${d.aqi ? d.aqi + ' AQI' : '--'}</td>
+            <td class="py-3 px-4 text-sm">${d.mic ? d.mic.toFixed(1) + ' dB' : '--'}</td>
+        </tr>
+    `).join('');
+}
+
+// Data limit filter
+function setDataLimit(limit, buttonElement) {
+    currentDataLimit = limit;
+    document.querySelectorAll('.data-filter-btn').forEach(btn => {
+        btn.classList.remove('bg-indigo-600', 'text-white');
+        btn.classList.add('bg-gray-200', 'text-gray-700');
+    });
+    buttonElement.classList.add('bg-indigo-600', 'text-white');
+    buttonElement.classList.remove('bg-gray-200', 'text-gray-700');
+    loadEnvironmentData();
+}
+
+// Event listeners and initialization
+document.addEventListener('DOMContentLoaded', function() {
+    initCharts();
+    loadDevices();
+    
+    document.getElementById('device-select').addEventListener('change', fetchAllData);
+    
+    refreshInterval = setInterval(() => {
+        if (document.getElementById('device-select').value) {
+            fetchAllData();
+        }
+    }, 30000);
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => clearInterval(refreshInterval));
+</script>
+{% endblock %}

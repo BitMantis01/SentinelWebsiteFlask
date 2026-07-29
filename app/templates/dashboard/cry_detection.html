@@ -1,0 +1,742 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Cry Detection - Sentinel{% endblock %}
+{% block page_title %}Cry Detection{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<style>
+    .cry-type-hungry { background: linear-gradient(45deg, #fbbf24, #f59e0b); }
+    .cry-type-tired { background: linear-gradient(45deg, #8b5cf6, #7c3aed); }
+    .cry-type-pain { background: linear-gradient(45deg, #ef4444, #dc2626); }
+    .cry-type-attention { background: linear-gradient(45deg, #06b6d4, #0891b2); }
+    .cry-type-unknown { background: linear-gradient(45deg, #6b7280, #4b5563); }
+    
+    .volume-bar {
+        height: 4px;
+        background: #e5e7eb;
+        border-radius: 2px;
+        overflow: hidden;
+        margin: 2px 0;
+    }
+    
+    .volume-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+        transition: width 0.3s ease;
+    }
+    
+    .alert-level-low { border-left: 4px solid #10b981; background-color: #f0fdf4; }
+    .alert-level-medium { border-left: 4px solid #f59e0b; background-color: #fffbeb; }
+    .alert-level-high { border-left: 4px solid #ef4444; background-color: #fef2f2; }
+    .alert-level-critical { border-left: 4px solid #dc2626; background-color: #fef2f2; animation: pulse 2s infinite; }
+    
+    .pattern-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin: 0 2px;
+    }
+    
+    .cry-waveform {
+        height: 100px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .waveform-bar {
+        position: absolute;
+        bottom: 0;
+        width: 2px;
+        background: #3b82f6;
+        margin: 0 1px;
+        transition: height 0.1s ease;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Device Selection & Status -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold text-gray-900">Cry Detection & Analysis</h2>
+        <div class="flex items-center space-x-4">
+            <select id="device-select" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+                <option value="">Select Device</option>
+                {% for device in current_user.envhub_boxes %}
+                <option value="{{ device.id }}">{{ device.name }}</option>
+                {% endfor %}
+            </select>
+            <div class="flex items-center space-x-2">
+                <div id="mic-status" class="w-3 h-3 rounded-full bg-gray-400"></div>
+                <span id="mic-status-text" class="text-sm text-gray-500">Microphone Off</span>
+            </div>
+            <button id="toggle-monitoring" class="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors">
+                Start Monitoring
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Current Cry Analysis -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <!-- Current Cry Status -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Current Status</h3>
+                <p id="cry-status" class="text-2xl font-bold text-gray-900">Silent</p>
+                <p id="cry-duration" class="text-xs text-gray-500">--:-- duration</p>
+            </div>
+            <div id="cry-status-icon" class="text-3xl">🤫</div>
+        </div>
+    </div>
+    
+    <!-- Cry Type -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Detected Type</h3>
+                <p id="cry-type" class="text-lg font-bold text-gray-900">None</p>
+                <p id="cry-confidence" class="text-xs text-gray-500">--% confidence</p>
+            </div>
+            <div class="w-12 h-12 rounded-full cry-type-unknown flex items-center justify-center">
+                <span id="cry-type-icon" class="text-white text-xl">❓</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Volume Level -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Volume Level</h3>
+                <p id="volume-level" class="text-2xl font-bold text-gray-900">--dB</p>
+                <div class="volume-bar mt-2">
+                    <div id="volume-fill" class="volume-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            <div class="text-3xl">🔊</div>
+        </div>
+    </div>
+    
+    <!-- Alert Level -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Alert Level</h3>
+                <p id="alert-level" class="text-2xl font-bold text-gray-900">Normal</p>
+                <p id="alert-reason" class="text-xs text-gray-500">All quiet</p>
+            </div>
+            <div class="text-3xl">🟢</div>
+        </div>
+    </div>
+</div>
+
+<!-- Real-time Waveform -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Audio Waveform (Real-time)</h3>
+    <div id="waveform-container" class="cry-waveform relative">
+        <div class="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
+            <span id="waveform-status">Start monitoring to see waveform</span>
+        </div>
+    </div>
+    <div class="mt-4 flex justify-between items-center text-sm text-gray-600">
+        <span>Volume Range: <span id="volume-range">0-100 dB</span></span>
+        <span>Frequency: <span id="frequency-range">--Hz</span></span>
+        <span>Duration: <span id="current-cry-duration">00:00</span></span>
+    </div>
+</div>
+
+<!-- Cry Pattern Analysis -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- Cry Type Distribution -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Cry Type Analysis (24h)</h3>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="cryTypeChart"></canvas>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+            <div class="flex items-center space-x-2">
+                <div class="pattern-indicator cry-type-hungry"></div>
+                <span>Hungry (<span id="hungry-count">0</span>)</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <div class="pattern-indicator cry-type-tired"></div>
+                <span>Tired (<span id="tired-count">0</span>)</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <div class="pattern-indicator cry-type-pain"></div>
+                <span>Pain (<span id="pain-count">0</span>)</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <div class="pattern-indicator cry-type-attention"></div>
+                <span>Attention (<span id="attention-count">0</span>)</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Volume Timeline -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Volume Timeline</h3>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="volumeTimelineChart"></canvas>
+        </div>
+        <div class="mt-4 text-xs text-gray-600">
+            <p>Peak Volume: <span id="peak-volume" class="font-medium">--dB</span></p>
+            <p>Average Volume: <span id="average-volume" class="font-medium">--dB</span></p>
+        </div>
+    </div>
+</div>
+
+<!-- Cry Detection History -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Recent Cry Events</h3>
+    <div class="overflow-x-auto">
+        <table class="min-w-full table-auto">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Confidence</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Volume</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Alert Level</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions Taken</th>
+                </tr>
+            </thead>
+            <tbody id="cry-history-table" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+                        No cry events detected yet
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Alerts and Recommendations -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Active Alerts -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Active Alerts</h3>
+        <div class="space-y-3" id="active-alerts">
+            <div class="alert-level-low p-3 rounded-lg">
+                <div class="flex items-center">
+                    <div class="text-green-600 mr-3">✅</div>
+                    <div>
+                        <p class="text-sm font-medium text-green-900">System Ready</p>
+                        <p class="text-xs text-green-700">Cry detection is active and monitoring</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Care Recommendations -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Care Recommendations</h3>
+        <div class="space-y-3" id="care-recommendations">
+            <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 class="text-sm font-medium text-blue-900 mb-2">🍼 Based on Cry Analysis</h4>
+                <ul class="text-xs text-blue-800 space-y-1">
+                    <li>• Start monitoring to receive personalized recommendations</li>
+                    <li>• System will analyze cry patterns and suggest appropriate care</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let cryTypeChart = null;
+let volumeTimelineChart = null;
+let currentDevice = null;
+let socket = null;
+let isMonitoring = false;
+let waveformBars = [];
+
+// Cry type definitions
+const CRY_TYPES = {
+    'hungry': { name: 'Hungry', icon: '🍼', color: '#f59e0b', recommendations: ['Check feeding schedule', 'Offer bottle/breast'] },
+    'tired': { name: 'Tired', icon: '😴', color: '#8b5cf6', recommendations: ['Create quiet environment', 'Consider swaddling'] },
+    'pain': { name: 'Pain/Discomfort', icon: '😢', color: '#ef4444', recommendations: ['Check diaper', 'Look for signs of illness', 'Consult healthcare provider'] },
+    'attention': { name: 'Attention', icon: '🤗', color: '#06b6d4', recommendations: ['Provide comfort', 'Gentle interaction', 'Check for overstimulation'] },
+    'unknown': { name: 'Unknown', icon: '❓', color: '#6b7280', recommendations: ['Continue monitoring', 'Try different soothing techniques'] }
+};
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Cry Detection page loaded');
+    initializeCharts();
+    setupEventListeners();
+    initializeSocket();
+    initializeWaveform();
+});
+
+function setupEventListeners() {
+    const deviceSelect = document.getElementById('device-select');
+    deviceSelect.addEventListener('change', function() {
+        const deviceId = this.value;
+        if (deviceId) {
+            selectDevice(deviceId);
+        }
+    });
+    
+    const toggleBtn = document.getElementById('toggle-monitoring');
+    toggleBtn.addEventListener('click', toggleMonitoring);
+}
+
+function selectDevice(deviceId) {
+    currentDevice = deviceId;
+    console.log('Selected device:', deviceId);
+    
+    // Enable monitoring button
+    document.getElementById('toggle-monitoring').disabled = false;
+    loadDeviceData(deviceId);
+}
+
+function toggleMonitoring() {
+    const btn = document.getElementById('toggle-monitoring');
+    const statusIndicator = document.getElementById('mic-status');
+    const statusText = document.getElementById('mic-status-text');
+    
+    if (!isMonitoring) {
+        isMonitoring = true;
+        btn.textContent = 'Stop Monitoring';
+        btn.className = 'px-4 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 transition-colors';
+        statusIndicator.className = 'w-3 h-3 rounded-full bg-green-500 animate-pulse';
+        statusText.textContent = 'Monitoring Active';
+        statusText.className = 'text-sm text-green-600';
+        
+        document.getElementById('waveform-status').textContent = 'Listening for audio...';
+        startWaveformAnimation();
+    } else {
+        isMonitoring = false;
+        btn.textContent = 'Start Monitoring';
+        btn.className = 'px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors';
+        statusIndicator.className = 'w-3 h-3 rounded-full bg-gray-400';
+        statusText.textContent = 'Monitoring Stopped';
+        statusText.className = 'text-sm text-gray-500';
+        
+        document.getElementById('waveform-status').textContent = 'Monitoring stopped';
+        stopWaveformAnimation();
+    }
+}
+
+function initializeSocket() {
+    socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Socket connected for cry detection');
+    });
+    
+    socket.on('disconnect', function() {
+        console.log('Socket disconnected');
+    });
+    
+    socket.on('audio_data', function(data) {
+        if (currentDevice && isMonitoring) {
+            updateAudioData(data);
+        }
+    });
+    
+    socket.on('cry_detected', function(data) {
+        if (currentDevice && isMonitoring) {
+            handleCryDetection(data);
+        }
+    });
+}
+
+function initializeCharts() {
+    // Cry Type Chart (Doughnut)
+    const cryCtx = document.getElementById('cryTypeChart').getContext('2d');
+    cryTypeChart = new Chart(cryCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Hungry', 'Tired', 'Pain', 'Attention', 'Unknown'],
+            datasets: [{
+                data: [0, 0, 0, 0, 0],
+                backgroundColor: [
+                    '#f59e0b',
+                    '#8b5cf6',
+                    '#ef4444',
+                    '#06b6d4',
+                    '#6b7280'
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    
+    // Volume Timeline Chart
+    const volumeCtx = document.getElementById('volumeTimelineChart').getContext('2d');
+    volumeTimelineChart = new Chart(volumeCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Volume (dB)',
+                data: [],
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    ticks: {
+                        callback: function(value) {
+                            return value + ' dB';
+                        }
+                    }
+                },
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'minute',
+                        displayFormats: {
+                            minute: 'HH:mm'
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+function initializeWaveform() {
+    const container = document.getElementById('waveform-container');
+    const containerWidth = container.offsetWidth;
+    const barCount = Math.floor(containerWidth / 3); // 3px per bar (2px width + 1px margin)
+    
+    waveformBars = [];
+    for (let i = 0; i < barCount; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'waveform-bar';
+        bar.style.left = (i * 3) + 'px';
+        bar.style.height = '2px';
+        container.appendChild(bar);
+        waveformBars.push(bar);
+    }
+}
+
+function startWaveformAnimation() {
+    if (!isMonitoring) return;
+    
+    // Simulate real-time waveform
+    waveformBars.forEach((bar, index) => {
+        setTimeout(() => {
+            const height = Math.random() * 80 + 10; // 10-90px height
+            bar.style.height = height + 'px';
+            bar.style.background = `hsl(${220 + (height/90) * 60}, 70%, 60%)`; // Color based on height
+        }, index * 10);
+    });
+    
+    // Continue animation
+    setTimeout(() => {
+        if (isMonitoring) {
+            startWaveformAnimation();
+        }
+    }, 200);
+}
+
+function stopWaveformAnimation() {
+    waveformBars.forEach(bar => {
+        bar.style.height = '2px';
+        bar.style.background = '#3b82f6';
+    });
+}
+
+function updateAudioData(data) {
+    // Update volume level
+    const volume = data.volume || 0;
+    document.getElementById('volume-level').textContent = volume.toFixed(0) + ' dB';
+    document.getElementById('volume-fill').style.width = Math.min(volume, 100) + '%';
+    
+    // Update frequency
+    document.getElementById('frequency-range').textContent = (data.frequency || 0).toFixed(0) + ' Hz';
+    
+    // Update volume timeline chart
+    const now = new Date();
+    volumeTimelineChart.data.labels.push(now);
+    volumeTimelineChart.data.datasets[0].data.push(volume);
+    
+    // Keep only last 50 data points
+    if (volumeTimelineChart.data.labels.length > 50) {
+        volumeTimelineChart.data.labels.shift();
+        volumeTimelineChart.data.datasets[0].data.shift();
+    }
+    
+    volumeTimelineChart.update('none');
+    
+    // Update volume statistics
+    const volumes = volumeTimelineChart.data.datasets[0].data;
+    if (volumes.length > 0) {
+        const maxVol = Math.max(...volumes);
+        const avgVol = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+        document.getElementById('peak-volume').textContent = maxVol.toFixed(0) + ' dB';
+        document.getElementById('average-volume').textContent = avgVol.toFixed(0) + ' dB';
+    }
+}
+
+function handleCryDetection(data) {
+    console.log('Cry detected:', data);
+    
+    const cryType = data.type || 'unknown';
+    const confidence = data.confidence || 0;
+    const duration = data.duration || 0;
+    const volume = data.volume || 0;
+    
+    // Update current cry status
+    updateCurrentCryStatus(cryType, confidence, duration, volume);
+    
+    // Update cry type chart
+    updateCryTypeChart(cryType);
+    
+    // Add to history
+    addCryToHistory(data);
+    
+    // Update alerts and recommendations
+    updateAlertsAndRecommendations(cryType, confidence, volume);
+}
+
+function updateCurrentCryStatus(type, confidence, duration, volume) {
+    const typeInfo = CRY_TYPES[type] || CRY_TYPES['unknown'];
+    
+    // Update status
+    document.getElementById('cry-status').textContent = 'Crying Detected';
+    document.getElementById('cry-status-icon').textContent = '😭';
+    
+    // Update type
+    document.getElementById('cry-type').textContent = typeInfo.name;
+    document.getElementById('cry-confidence').textContent = confidence.toFixed(0) + '% confidence';
+    document.getElementById('cry-type-icon').textContent = typeInfo.icon;
+    
+    // Update type indicator background
+    const indicator = document.querySelector('.w-12.h-12.rounded-full');
+    indicator.className = `w-12 h-12 rounded-full cry-type-${type} flex items-center justify-center`;
+    
+    // Update duration
+    const minutes = Math.floor(duration / 60);
+    const seconds = duration % 60;
+    document.getElementById('cry-duration').textContent = 
+        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')} duration`;
+    
+    // Update alert level
+    let alertLevel = 'Normal';
+    let alertIcon = '🟢';
+    let alertReason = 'Cry detected and analyzed';
+    
+    if (confidence > 80 && volume > 70) {
+        alertLevel = 'High';
+        alertIcon = '🔴';
+        alertReason = 'High confidence cry with loud volume';
+    } else if (confidence > 60 || volume > 50) {
+        alertLevel = 'Medium';
+        alertIcon = '🟡';
+        alertReason = 'Moderate cry intensity';
+    } else {
+        alertLevel = 'Low';
+        alertIcon = '🟢';
+        alertReason = 'Low intensity cry';
+    }
+    
+    document.getElementById('alert-level').textContent = alertLevel;
+    document.getElementById('alert-reason').textContent = alertReason;
+}
+
+function updateCryTypeChart(type) {
+    const typeIndex = ['hungry', 'tired', 'pain', 'attention', 'unknown'].indexOf(type);
+    if (typeIndex !== -1) {
+        cryTypeChart.data.datasets[0].data[typeIndex]++;
+        cryTypeChart.update();
+        
+        // Update counters
+        const countElements = ['hungry-count', 'tired-count', 'pain-count', 'attention-count'];
+        if (typeIndex < countElements.length) {
+            const element = document.getElementById(countElements[typeIndex]);
+            const currentCount = parseInt(element.textContent) || 0;
+            element.textContent = currentCount + 1;
+        }
+    }
+}
+
+function addCryToHistory(data) {
+    const tbody = document.getElementById('cry-history-table');
+    
+    // Clear "no events" message if present
+    if (tbody.querySelector('td[colspan="7"]')) {
+        tbody.innerHTML = '';
+    }
+    
+    const now = new Date();
+    const typeInfo = CRY_TYPES[data.type] || CRY_TYPES['unknown'];
+    const duration = Math.floor(data.duration || 0);
+    const confidence = (data.confidence || 0).toFixed(0);
+    const volume = (data.volume || 0).toFixed(0);
+    
+    const alertLevel = confidence > 80 ? 'High' : confidence > 60 ? 'Medium' : 'Low';
+    const alertClass = `alert-level-${alertLevel.toLowerCase()}`;
+    
+    const row = `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-2 text-sm">${now.toLocaleTimeString()}</td>
+            <td class="px-4 py-2 text-sm">${Math.floor(duration/60)}:${(duration%60).toString().padStart(2,'0')}</td>
+            <td class="px-4 py-2 text-sm">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium" style="background-color: ${typeInfo.color}20; color: ${typeInfo.color}">
+                    ${typeInfo.icon} ${typeInfo.name}
+                </span>
+            </td>
+            <td class="px-4 py-2 text-sm font-medium">${confidence}%</td>
+            <td class="px-4 py-2 text-sm">${volume} dB</td>
+            <td class="px-4 py-2 text-sm">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${alertClass}">
+                    ${alertLevel}
+                </span>
+            </td>
+            <td class="px-4 py-2 text-sm text-gray-600">Notification sent</td>
+        </tr>
+    `;
+    
+    tbody.insertAdjacentHTML('afterbegin', row);
+    
+    // Keep only last 20 entries
+    const rows = tbody.querySelectorAll('tr');
+    if (rows.length > 20) {
+        rows[rows.length - 1].remove();
+    }
+}
+
+function updateAlertsAndRecommendations(type, confidence, volume) {
+    const typeInfo = CRY_TYPES[type] || CRY_TYPES['unknown'];
+    
+    // Update active alerts
+    const alertsContainer = document.getElementById('active-alerts');
+    
+    let alertLevel = 'low';
+    let alertMessage = 'Cry detected';
+    let alertIcon = '🟡';
+    
+    if (confidence > 80 && volume > 70) {
+        alertLevel = 'critical';
+        alertMessage = 'High intensity cry - immediate attention recommended';
+        alertIcon = '🚨';
+    } else if (confidence > 60) {
+        alertLevel = 'medium';
+        alertMessage = 'Moderate cry detected - check baby needs';
+        alertIcon = '🟠';
+    }
+    
+    const alertHtml = `
+        <div class="alert-level-${alertLevel} p-3 rounded-lg">
+            <div class="flex items-center">
+                <div class="mr-3">${alertIcon}</div>
+                <div>
+                    <p class="text-sm font-medium">${alertMessage}</p>
+                    <p class="text-xs">Detected: ${typeInfo.name} (${confidence.toFixed(0)}% confidence)</p>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    alertsContainer.innerHTML = alertHtml;
+    
+    // Update care recommendations
+    const recommendationsContainer = document.getElementById('care-recommendations');
+    const recommendations = typeInfo.recommendations;
+    
+    const recHtml = `
+        <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 class="text-sm font-medium text-blue-900 mb-2">${typeInfo.icon} ${typeInfo.name} Cry Detected</h4>
+            <ul class="text-xs text-blue-800 space-y-1">
+                ${recommendations.map(rec => `<li>• ${rec}</li>`).join('')}
+            </ul>
+        </div>
+    `;
+    
+    recommendationsContainer.innerHTML = recHtml;
+}
+
+function loadDeviceData(deviceId) {
+    // Simulate loading device-specific data
+    console.log('Loading data for device:', deviceId);
+    
+    // Start simulating cry detection events periodically
+    if (isMonitoring) {
+        setTimeout(() => {
+            simulateCryDetection();
+        }, Math.random() * 30000 + 10000); // Random 10-40 seconds
+    }
+}
+
+function simulateCryDetection() {
+    if (!isMonitoring || !currentDevice) return;
+    
+    // Simulate random cry detection
+    const types = ['hungry', 'tired', 'pain', 'attention', 'unknown'];
+    const randomType = types[Math.floor(Math.random() * types.length)];
+    const confidence = Math.random() * 40 + 60; // 60-100%
+    const volume = Math.random() * 50 + 30; // 30-80 dB
+    const duration = Math.floor(Math.random() * 120) + 10; // 10-130 seconds
+    
+    const mockCryData = {
+        type: randomType,
+        confidence: confidence,
+        volume: volume,
+        duration: duration,
+        frequency: Math.random() * 2000 + 100 // 100-2100 Hz
+    };
+    
+    handleCryDetection(mockCryData);
+    
+    // Schedule next simulation
+    setTimeout(() => {
+        simulateCryDetection();
+    }, Math.random() * 60000 + 30000); // Random 30-90 seconds
+}
+
+// Start periodic audio data simulation
+setInterval(() => {
+    if (isMonitoring && currentDevice) {
+        const mockAudioData = {
+            volume: Math.random() * 80 + 20, // 20-100 dB
+            frequency: Math.random() * 1000 + 200 // 200-1200 Hz
+        };
+        updateAudioData(mockAudioData);
+    }
+}, 1000); // Update every second
+</script>
+{% endblock %}

@@ -1,0 +1,39 @@
+# robots.txt for SENTINEL - AI-Powered Neonatal Monitoring System
+
+# Allow search engines to index the landing page
+User-agent: *
+Allow: /
+Allow: /$
+
+# Block all other pages (dashboard, login, register, API endpoints)
+Disallow: /login
+Disallow: /register
+Disallow: /logout
+Disallow: /dashboard
+Disallow: /dashboard/*
+Disallow: /api/
+Disallow: /admin/
+Disallow: /static/
+Disallow: /*.json$
+
+# Crawl delay (optional - be nice to server)
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: {{ request.url_root }}sitemap.xml
+
+# Allow specific bots
+User-agent: Googlebot
+Allow: /
+Disallow: /dashboard
+Disallow: /api/
+
+User-agent: Bingbot
+Allow: /
+Disallow: /dashboard
+Disallow: /api/
+
+User-agent: Slurp
+Allow: /
+Disallow: /dashboard
+Disallow: /api/

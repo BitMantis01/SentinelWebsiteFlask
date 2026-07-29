@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Register - SENTINEL</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    {% if turnstile_site_key %}
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    {% endif %}
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
+    <div class="w-full max-w-lg bg-white p-8 rounded-lg shadow-md">
+        <h2 class="text-2xl font-bold text-center mb-6">Create Your SENTINEL Account</h2>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="bg-{{ category if category != 'danger' else 'red' }}-100 border border-{{ category if category != 'danger' else 'red' }}-400 text-{{ category if category != 'danger' else 'red' }}-700 px-4 py-3 rounded relative mb-4" role="alert">
+                        <span class="block sm:inline">{{ message }}</span>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <form method="POST" action="{{ url_for('main.register') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <div class="mb-4">
+                <label for="email" class="block text-gray-700">Email Address</label>
+                <input type="email" name="email" id="email" class="w-full px-3 py-2 border rounded-md" required>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="password" class="block text-gray-700">Password</label>
+                    <input type="password" name="password" id="password" class="w-full px-3 py-2 border rounded-md" required>
+                    <div class="text-sm text-gray-600 mt-1">
+                        Password must be at least 8 characters with 1 uppercase, 1 lowercase, 1 number, and 1 special character.
+                    </div>
+                </div>
+                <div>
+                    <label for="confirm_password" class="block text-gray-700">Confirm Password</label>
+                    <input type="password" name="confirm_password" id="confirm_password" class="w-full px-3 py-2 border rounded-md" required>
+                </div>
+            </div>
+            
+            <!-- Password validation indicators -->
+            <div id="password-validation" class="mb-4 hidden">
+                <div class="text-sm">
+                    <div id="length-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>At least 8 characters</span>
+                    </div>
+                    <div id="uppercase-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>At least 1 uppercase letter</span>
+                    </div>
+                    <div id="lowercase-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>At least 1 lowercase letter</span>
+                    </div>
+                    <div id="number-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>At least 1 number</span>
+                    </div>
+                    <div id="special-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>At least 1 special character (!@#$%^&*)</span>
+                    </div>
+                    <div id="match-check" class="flex items-center">
+                        <span class="w-4 h-4 mr-2">❌</span>
+                        <span>Passwords match</span>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700">Use Case</label>
+                <div class="mt-2 flex">
+                    <label class="inline-flex items-center mr-6">
+                        <input type="radio" name="use_case" value="Home" class="form-radio" checked onchange="toggleFields()">
+                        <span class="ml-2">Home</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="use_case" value="Hospital" class="form-radio" onchange="toggleFields()">
+                        <span class="ml-2">Hospital</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div id="common-fields">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="name" class="block text-gray-700">Full Name</label>
+                        <input type="text" name="name" id="name" class="w-full px-3 py-2 border rounded-md" required>
+                    </div>
+                    <div>
+                        <label for="contact_number" class="block text-gray-700">Contact Number</label>
+                        <input type="text" name="contact_number" id="contact_number" class="w-full px-3 py-2 border rounded-md" required>
+                    </div>
+                </div>
+            </div>
+
+            <div id="home-fields">
+                <div class="mb-4">
+                    <label for="birthday" class="block text-gray-700">Birthday</label>
+                    <input type="date" name="birthday" id="birthday" class="w-full px-3 py-2 border rounded-md">
+                </div>
+            </div>
+
+            <div id="hospital-fields" style="display: none;">
+                <div class="mb-4">
+                    <label for="hospital_name" class="block text-gray-700">Hospital/Clinic Name</label>
+                    <input type="text" name="hospital_name" id="hospital_name" class="w-full px-3 py-2 border rounded-md">
+                </div>
+            </div>
+
+            {% if turnstile_site_key %}
+            <div class="mb-6 flex justify-center">
+                <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+            </div>
+            {% endif %}
+
+            <button type="submit" class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600">Register</button>
+        </form>
+        <p class="text-center mt-4">
+            Already have an account? <a href="{{ url_for('main.login') }}" class="text-indigo-600 hover:underline">Login here</a>
+        </p>
+    </div>
+
+    <script>
+        function toggleFields() {
+            const useCase = document.querySelector('input[name="use_case"]:checked').value;
+            const homeFields = document.getElementById('home-fields');
+            const hospitalFields = document.getElementById('hospital-fields');
+            const birthdayInput = document.getElementById('birthday');
+            const hospitalNameInput = document.getElementById('hospital_name');
+
+            if (useCase === 'Home') {
+                homeFields.style.display = 'block';
+                hospitalFields.style.display = 'none';
+                birthdayInput.required = true;
+                hospitalNameInput.required = false;
+            } else {
+                homeFields.style.display = 'none';
+                hospitalFields.style.display = 'block';
+                birthdayInput.required = false;
+                hospitalNameInput.required = true;
+            }
+        }
+
+        function validatePassword() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+            const validationDiv = document.getElementById('password-validation');
+            
+            // Show validation if password field has content
+            if (password.length > 0) {
+                validationDiv.classList.remove('hidden');
+            } else {
+                validationDiv.classList.add('hidden');
+                return false;
+            }
+            
+            // Length check
+            const lengthCheck = password.length >= 8;
+            updateCheck('length-check', lengthCheck);
+            
+            // Uppercase check
+            const uppercaseCheck = /[A-Z]/.test(password);
+            updateCheck('uppercase-check', uppercaseCheck);
+            
+            // Lowercase check  
+            const lowercaseCheck = /[a-z]/.test(password);
+            updateCheck('lowercase-check', lowercaseCheck);
+            
+            // Number check
+            const numberCheck = /[0-9]/.test(password);
+            updateCheck('number-check', numberCheck);
+            
+            // Special character check
+            const specialCheck = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+            updateCheck('special-check', specialCheck);
+            
+            // Password match check
+            const matchCheck = password === confirmPassword && confirmPassword.length > 0;
+            updateCheck('match-check', matchCheck);
+            
+            return lengthCheck && uppercaseCheck && lowercaseCheck && numberCheck && specialCheck && matchCheck;
+        }
+        
+        function updateCheck(elementId, isValid) {
+            const element = document.getElementById(elementId);
+            const icon = element.querySelector('span');
+            
+            if (isValid) {
+                icon.textContent = '✅';
+                element.classList.add('text-green-600');
+                element.classList.remove('text-red-600');
+            } else {
+                icon.textContent = '❌';
+                element.classList.add('text-red-600');
+                element.classList.remove('text-green-600');
+            }
+        }
+        
+        // Event listeners
+        document.getElementById('password').addEventListener('input', validatePassword);
+        document.getElementById('confirm_password').addEventListener('input', validatePassword);
+        
+        // Form submission validation
+        document.querySelector('form').addEventListener('submit', function(e) {
+            if (!validatePassword()) {
+                e.preventDefault();
+                alert('Please ensure your password meets all requirements and passwords match.');
+                return false;
+            }
+        });
+        
+        // Initial call to set the correct fields based on the default checked radio
+        toggleFields();
+    </script>
+</body>
+</html>

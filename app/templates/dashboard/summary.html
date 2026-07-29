@@ -1,0 +1,250 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Summary - SENTINEL Dashboard{% endblock %}
+{% block page_title %}Dashboard Summary{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Vitals Summary -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+            <span class="mr-2">💓</span> Vitals Summary
+        </h2>
+        <div id="vitals-summary" class="space-y-4">
+            <!-- Data will be loaded here by JavaScript -->
+            <div class="text-center text-gray-500 py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
+                Loading vitals data...
+            </div>
+        </div>
+    </div>
+
+    <!-- Environment Summary -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+            <span class="mr-2">🌡️</span> Environment Summary
+        </h2>
+        <div id="environment-summary" class="space-y-4">
+            <!-- Data will be loaded here by JavaScript -->
+            <div class="text-center text-gray-500 py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
+                Loading environment data...
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Camera Feed -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 flex items-center">
+            <span class="mr-2">📹</span> Live Feed Snapshot
+        </h2>
+        <div id="camera-summary">
+            <!-- Data will be loaded here by JavaScript -->
+            <div class="text-center text-gray-500 py-8">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
+                Loading camera data...
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device Selection Modal -->
+<div id="device-selection-modal" class="fixed inset-0 custom-modal items-center justify-center hidden z-50">
+    <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold mb-4">No Devices Found</h3>
+        <p class="text-gray-600 mb-4">You haven't linked any devices yet. Please go to your profile to link devices first.</p>
+        <div class="flex justify-end space-x-2">
+            <button onclick="closeModal('device-selection-modal')" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-md">OK</button>
+            <a href="{{ url_for('main.profile') }}" class="bg-indigo-600 text-white py-2 px-4 rounded-md">Go to Profile</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let refreshInterval;
+
+function openModal(modalId) {
+    document.getElementById(modalId).classList.remove('hidden');
+    document.getElementById(modalId).classList.add('flex');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+    document.getElementById(modalId).classList.remove('flex');
+}
+
+function updateVitalsSummary(vitals) {
+    const container = document.getElementById('vitals-summary');
+    
+    if (vitals.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">No vitals devices linked</p>';
+        return;
+    }
+    
+    container.innerHTML = vitals.map(device => {
+        const validation = device.validation || {};
+        return `
+        <div class="border rounded-lg p-4 hover:bg-gray-50">
+            <h3 class="font-semibold text-lg">${device.device_name}</h3>
+            <p class="text-sm text-gray-600 mb-2">Baby: ${device.baby_name}</p>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                    <span class="font-medium">BPM:</span> 
+                    <span class="${device.bpm > 0 ? 'text-green-600' : 'text-gray-400'}">${device.bpm > 0 ? device.bpm : 'N/A'}</span>
+                    ${device.bpm > 0 ? (validation.heart_rate_valid ? ' ✅' : ' ❌') : ''}
+                </div>
+                <div>
+                    <span class="font-medium">SpO2:</span> 
+                    <span class="${device.spo2 > 0 ? 'text-blue-600' : 'text-gray-400'}">${device.spo2 > 0 ? device.spo2 + '%' : 'N/A'}</span>
+                    ${device.spo2 > 0 ? (validation.spo2_valid ? ' ✅' : ' ❌') : ''}
+                </div>
+                <div>
+                    <span class="font-medium">Temp:</span> 
+                    <span class="${device.temperature > 0 ? 'text-orange-600' : 'text-gray-400'}">${device.temperature > 0 ? device.temperature.toFixed(1) + '°C' : 'N/A'}</span>
+                    ${device.temperature > 0 ? (validation.temperature_valid ? ' ✅' : ' ❌') : ''}
+                </div>
+                <div>
+                    <span class="font-medium">Movement:</span> 
+                    <span class="${device.movement ? 'text-yellow-600' : 'text-gray-600'}">${device.movement ? 'Yes' : 'No'}</span>
+                </div>
+            </div>
+            <div class="mt-2 text-xs">
+                <span class="font-medium">Status:</span>
+                <span class="${validation.all_valid ? 'text-green-600' : 'text-red-600'}">
+                    ${validation.all_valid ? '✅ All vitals normal' : '⚠️ Some vitals outside normal range'}
+                </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">${formatToPhilippineTime(device.timestamp)}</p>
+        </div>`;
+    }).join('');
+}
+
+function updateEnvironmentSummary(environment) {
+    const container = document.getElementById('environment-summary');
+    
+    if (environment.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">No environment devices linked</p>';
+        return;
+    }
+    
+    container.innerHTML = environment.map(device => `
+        <div class="border rounded-lg p-4 hover:bg-gray-50">
+            <h3 class="font-semibold text-lg">${device.device_name}</h3>
+            <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+                <div>
+                    <span class="font-medium">Temperature:</span> 
+                    <span class="text-orange-600">${device.temp ? device.temp.toFixed(1) + '°C' : 'N/A'}</span>
+                </div>
+                <div>
+                    <span class="font-medium">Humidity:</span> 
+                    <span class="text-blue-600">${device.humidity ? device.humidity.toFixed(1) + '%' : 'N/A'}</span>
+                </div>
+                <div class="col-span-2">
+                    <span class="font-medium">Air Quality:</span> 
+                    <span class="text-purple-600">${device.aqi || 'N/A'}</span>
+                </div>
+            </div>
+            <div class="mt-2 text-sm">
+                <span class="font-medium">Audio:</span> 
+                <span class="${device.is_playing ? 'text-green-600' : 'text-gray-500'}">
+                    ${device.is_playing ? `Playing Track ${device.current_track}` : 'Stopped'}
+                </span>
+                <span class="text-gray-500">(Vol: ${device.current_volume}/30)</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2" id="env-time-${device.device_name.replace(/\s+/g, '')}">
+                Last updated: ${formatTimeAgo(device.timestamp)}
+            </p>
+        </div>
+    `).join('');
+}
+
+function updateCameraSummary(images) {
+    const container = document.getElementById('camera-summary');
+    
+    if (images.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-center py-8">No camera devices linked</p>';
+        return;
+    }
+    
+    const latestImage = images[0];
+    container.innerHTML = `
+        <div class="text-center">
+            <h3 class="font-semibold mb-3">${latestImage.device_name}</h3>
+            <img src="data:image/jpeg;base64,${latestImage.image_data}" 
+                 alt="Live Feed" 
+                 class="w-full h-48 object-cover rounded-lg mb-3 shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                 onclick="openImagePreview('${latestImage.image_data}', '${latestImage.timestamp}')">
+            <p class="text-xs text-gray-500" id="camera-time">
+                Last updated: ${formatTimeAgo(latestImage.timestamp)}
+            </p>
+        </div>
+    `;
+}
+
+function loadSummaryData() {
+    fetch('/api/dashboard/summary')
+        .then(response => response.json())
+        .then(data => {
+            updateVitalsSummary(data.vitals);
+            updateEnvironmentSummary(data.environment);
+            updateCameraSummary(data.images);
+        })
+        .catch(error => {
+            console.error('Error loading summary data:', error);
+            showNotification('Error loading dashboard data', 'error');
+        });
+}
+
+function updateTimeStamps() {
+    // Update all timestamps every second
+    document.querySelectorAll('[id^="vitals-time-"], [id^="env-time-"], #camera-time').forEach(element => {
+        const text = element.textContent;
+        if (text.includes('Last updated:')) {
+            // This would need the original timestamp to recalculate, so we'll refresh data periodically instead
+        }
+    });
+}
+
+function openImagePreview(imageData, timestamp) {
+    // Create a simple modal to show the full-size image
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="max-w-3xl max-h-screen p-4">
+            <div class="text-center">
+                <img src="data:image/jpeg;base64,${imageData}" 
+                     alt="Full size preview" 
+                     class="max-w-full max-h-[70vh] w-auto h-auto rounded-lg shadow-2xl">
+                <p class="mt-3 text-white text-sm">${formatToPhilippineTime(timestamp)}</p>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" 
+                        class="mt-3 bg-white text-black px-4 py-2 rounded-md hover:bg-gray-200">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+    modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+    };
+    document.body.appendChild(modal);
+}
+
+// Load data immediately
+loadSummaryData();
+
+// Refresh data every 10 seconds
+refreshInterval = setInterval(loadSummaryData, 10000);
+
+// Update timestamps every second
+setInterval(updateTimeStamps, 1000);
+
+// Clean up when leaving the page
+window.addEventListener('beforeunload', () => {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+});
+</script>
+{% endblock %}

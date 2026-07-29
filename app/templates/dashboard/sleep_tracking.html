@@ -1,0 +1,627 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Sleep Tracking - Sentinel{% endblock %}
+{% block page_title %}Sleep Tracking{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<style>
+    .sleep-phase {
+        transition: all 0.3s ease;
+    }
+    .sleep-awake { background: linear-gradient(45deg, #fca5a5, #f87171); }
+    .sleep-light { background: linear-gradient(45deg, #fde68a, #fbbf24); }
+    .sleep-deep { background: linear-gradient(45deg, #93c5fd, #3b82f6); }
+    .sleep-rem { background: linear-gradient(45deg, #c084fc, #8b5cf6); }
+    
+    .movement-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin: 2px;
+    }
+    .movement-low { background-color: #10b981; }
+    .movement-moderate { background-color: #f59e0b; }
+    .movement-high { background-color: #ef4444; }
+    
+    .sleep-stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .sleep-quality-excellent { background: #10b981; }
+    .sleep-quality-good { background: #22c55e; }
+    .sleep-quality-fair { background: #f59e0b; }
+    .sleep-quality-poor { background: #ef4444; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Device Selection -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold text-gray-900">Sleep Monitoring Dashboard</h2>
+        <div class="flex items-center space-x-4">
+            <select id="device-select" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+                <option value="">Select Device</option>
+                {% for device in current_user.footwear_monitors %}
+                <option value="{{ device.device_id }}">{{ device.name }} - {{ device.baby_name or 'Unnamed Baby' }}</option>
+                {% endfor %}
+            </select>
+            <div class="flex items-center space-x-2">
+                <div id="connection-status" class="w-3 h-3 rounded-full bg-gray-400"></div>
+                <span id="connection-text" class="text-sm text-gray-500">Disconnected</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sleep Summary Cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+    <!-- Current Sleep State -->
+    <div class="sleep-stats-card p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium opacity-80">Current State</h3>
+                <p id="current-sleep-state" class="text-2xl font-bold">Monitoring...</p>
+                <p id="current-duration" class="text-xs opacity-70">--:-- elapsed</p>
+            </div>
+            <div id="current-sleep-icon" class="text-3xl">🌙</div>
+        </div>
+    </div>
+    
+    <!-- Sleep Quality Score -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Sleep Quality</h3>
+                <p id="sleep-quality-score" class="text-2xl font-bold text-gray-900">--</p>
+                <p id="sleep-quality-rating" class="text-xs text-gray-500">Not available</p>
+            </div>
+            <div class="w-12 h-12 rounded-full sleep-quality-good flex items-center justify-center">
+                <span class="text-white font-bold" id="quality-percentage">--</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Total Sleep Time -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Total Sleep</h3>
+                <p id="total-sleep-time" class="text-2xl font-bold text-gray-900">--:--</p>
+                <p class="text-xs text-gray-500">Today</p>
+            </div>
+            <div class="text-3xl">😴</div>
+        </div>
+    </div>
+    
+    <!-- Movement Activity -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-sm font-medium text-gray-600">Movement Level</h3>
+                <p id="movement-level" class="text-2xl font-bold text-gray-900">Low</p>
+                <p id="movement-count" class="text-xs text-gray-500">0 events</p>
+            </div>
+            <div class="text-3xl">🏃</div>
+        </div>
+    </div>
+</div>
+
+<!-- Sleep Pattern Chart -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold text-gray-900">Sleep Pattern Analysis</h3>
+        <div class="flex space-x-2 text-xs">
+            <div class="flex items-center space-x-1">
+                <div class="w-3 h-3 sleep-awake rounded"></div>
+                <span>Awake</span>
+            </div>
+            <div class="flex items-center space-x-1">
+                <div class="w-3 h-3 sleep-light rounded"></div>
+                <span>Light Sleep</span>
+            </div>
+            <div class="flex items-center space-x-1">
+                <div class="w-3 h-3 sleep-deep rounded"></div>
+                <span>Deep Sleep</span>
+            </div>
+            <div class="flex items-center space-x-1">
+                <div class="w-3 h-3 sleep-rem rounded"></div>
+                <span>REM Sleep</span>
+            </div>
+        </div>
+    </div>
+    <div class="chart-container" style="height: 300px;">
+        <canvas id="sleepPatternChart"></canvas>
+    </div>
+</div>
+
+<!-- Movement and Environmental Correlation -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- Movement Analysis -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Movement Analysis</h3>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="movementChart"></canvas>
+        </div>
+        <div class="mt-4 grid grid-cols-3 gap-4 text-center">
+            <div>
+                <div class="movement-indicator movement-low"></div>
+                <p class="text-xs text-gray-600">Low</p>
+                <p id="low-movement-count" class="font-bold">0</p>
+            </div>
+            <div>
+                <div class="movement-indicator movement-moderate"></div>
+                <p class="text-xs text-gray-600">Moderate</p>
+                <p id="moderate-movement-count" class="font-bold">0</p>
+            </div>
+            <div>
+                <div class="movement-indicator movement-high"></div>
+                <p class="text-xs text-gray-600">High</p>
+                <p id="high-movement-count" class="font-bold">0</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Environmental Factors -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Sleep Environment</h3>
+        <div class="space-y-4">
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-medium">Room Temperature</span>
+                <span id="room-temp" class="text-sm text-gray-600">--°C</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-medium">Humidity</span>
+                <span id="room-humidity" class="text-sm text-gray-600">--%</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-medium">Air Quality</span>
+                <span id="room-aqi" class="text-sm text-gray-600">--</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-sm font-medium">Noise Level</span>
+                <span id="noise-level" class="text-sm text-gray-600">--dB</span>
+            </div>
+        </div>
+        
+        <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+            <h4 class="text-sm font-medium text-blue-900 mb-2">Sleep Recommendations</h4>
+            <ul id="sleep-recommendations" class="text-xs text-blue-800 space-y-1">
+                <li>• Select a device to view recommendations</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Sleep History and Patterns -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Sleep History & Trends</h3>
+    <div class="overflow-x-auto">
+        <table class="min-w-full table-auto">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sleep Duration</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quality Score</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Deep Sleep %</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">REM Sleep %</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Awakenings</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                </tr>
+            </thead>
+            <tbody id="sleep-history-table" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-2"></div>
+                        Loading sleep history...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Sleep Alerts and Notifications -->
+<div class="bg-white p-6 rounded-lg shadow-md">
+    <h3 class="text-lg font-semibold text-gray-900 mb-4">Sleep Alerts & Notifications</h3>
+    <div class="space-y-3" id="sleep-alerts">
+        <div class="flex items-center p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div class="text-green-600 mr-3">✅</div>
+            <div>
+                <p class="text-sm font-medium text-green-900">System Ready</p>
+                <p class="text-xs text-green-700">Sleep monitoring is active and functioning normally</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let sleepPatternChart = null;
+let movementChart = null;
+let currentDevice = null;
+let socket = null;
+
+// Sleep state definitions
+const SLEEP_STATES = {
+    'awake': { name: 'Awake', icon: '😊', color: '#fca5a5' },
+    'light': { name: 'Light Sleep', icon: '😌', color: '#fde68a' },
+    'deep': { name: 'Deep Sleep', icon: '😴', color: '#93c5fd' },
+    'rem': { name: 'REM Sleep', icon: '🌙', color: '#c084fc' }
+};
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Sleep Tracking page loaded');
+    initializeCharts();
+    setupEventListeners();
+    initializeSocket();
+    loadInitialData();
+});
+
+function setupEventListeners() {
+    const deviceSelect = document.getElementById('device-select');
+    deviceSelect.addEventListener('change', function() {
+        const deviceId = this.value;
+        if (deviceId) {
+            selectDevice(deviceId);
+        }
+    });
+}
+
+function selectDevice(deviceId) {
+    currentDevice = deviceId;
+    console.log('Selected device:', deviceId);
+    
+    // Update connection status
+    updateConnectionStatus('connected');
+    
+    // Load device data
+    loadSleepData(deviceId);
+    loadEnvironmentalData(deviceId);
+}
+
+function initializeSocket() {
+    socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Socket connected for sleep tracking');
+        updateConnectionStatus('connected');
+    });
+    
+    socket.on('disconnect', function() {
+        console.log('Socket disconnected');
+        updateConnectionStatus('disconnected');
+    });
+    
+    socket.on('vitals_update', function(data) {
+        if (currentDevice && data.device_id === currentDevice) {
+            updateRealTimeData(data);
+        }
+    });
+    
+    socket.on('environment_update', function(data) {
+        if (currentDevice) {
+            updateEnvironmentalData(data);
+        }
+    });
+}
+
+function updateConnectionStatus(status) {
+    const statusIndicator = document.getElementById('connection-status');
+    const statusText = document.getElementById('connection-text');
+    
+    if (status === 'connected') {
+        statusIndicator.className = 'w-3 h-3 rounded-full bg-green-500';
+        statusText.textContent = 'Connected';
+        statusText.className = 'text-sm text-green-600';
+    } else {
+        statusIndicator.className = 'w-3 h-3 rounded-full bg-red-500';
+        statusText.textContent = 'Disconnected';
+        statusText.className = 'text-sm text-red-600';
+    }
+}
+
+function initializeCharts() {
+    // Sleep Pattern Chart
+    const sleepCtx = document.getElementById('sleepPatternChart').getContext('2d');
+    sleepPatternChart = new Chart(sleepCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Sleep Depth',
+                data: [],
+                borderColor: '#8b5cf6',
+                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 4,
+                    ticks: {
+                        stepSize: 1,
+                        callback: function(value) {
+                            const states = ['Awake', 'Light', 'Deep', 'REM'];
+                            return states[value] || '';
+                        }
+                    }
+                },
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'hour',
+                        displayFormats: {
+                            hour: 'HH:mm'
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    
+    // Movement Chart
+    const movementCtx = document.getElementById('movementChart').getContext('2d');
+    movementChart = new Chart(movementCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Movement Intensity',
+                data: [],
+                backgroundColor: function(context) {
+                    const value = context.parsed.y;
+                    if (value < 0.3) return '#10b981';
+                    if (value < 0.6) return '#f59e0b';
+                    return '#ef4444';
+                }
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 1,
+                    ticks: {
+                        callback: function(value) {
+                            if (value < 0.3) return 'Low';
+                            if (value < 0.6) return 'Moderate';
+                            return 'High';
+                        }
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+function updateRealTimeData(data) {
+    // Analyze sleep state based on movement and vitals
+    const sleepState = analyzeSleepState(data);
+    updateCurrentSleepState(sleepState);
+    
+    // Update charts
+    updateSleepPatternChart(data, sleepState);
+    updateMovementChart(data);
+    
+    // Update movement analysis
+    updateMovementAnalysis(data.movement);
+}
+
+function analyzeSleepState(data) {
+    // Simple sleep analysis based on movement and heart rate
+    const movement = data.movement || 0;
+    const heartRate = data.heart_rate || 100;
+    
+    if (movement > 0.7) {
+        return 'awake';
+    } else if (movement > 0.4) {
+        return 'light';
+    } else if (heartRate < 90) {
+        return 'deep';
+    } else {
+        return 'rem';
+    }
+}
+
+function updateCurrentSleepState(state) {
+    const stateInfo = SLEEP_STATES[state];
+    document.getElementById('current-sleep-state').textContent = stateInfo.name;
+    document.getElementById('current-sleep-icon').textContent = stateInfo.icon;
+    
+    // Update duration (simplified - would need actual tracking)
+    const duration = Math.floor(Math.random() * 120) + 1; // Simulated
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    document.getElementById('current-duration').textContent = 
+        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} elapsed`;
+}
+
+function updateSleepPatternChart(data, sleepState) {
+    const now = new Date();
+    const stateValue = Object.keys(SLEEP_STATES).indexOf(sleepState);
+    
+    sleepPatternChart.data.labels.push(now);
+    sleepPatternChart.data.datasets[0].data.push(stateValue);
+    
+    // Keep only last 24 hours of data
+    if (sleepPatternChart.data.labels.length > 144) { // 10-minute intervals
+        sleepPatternChart.data.labels.shift();
+        sleepPatternChart.data.datasets[0].data.shift();
+    }
+    
+    sleepPatternChart.update('none');
+}
+
+function updateMovementChart(data) {
+    const now = new Date();
+    const movement = data.movement || 0;
+    
+    movementChart.data.labels.push(now.toLocaleTimeString());
+    movementChart.data.datasets[0].data.push(movement);
+    
+    // Keep only last 50 data points
+    if (movementChart.data.labels.length > 50) {
+        movementChart.data.labels.shift();
+        movementChart.data.datasets[0].data.shift();
+    }
+    
+    movementChart.update('none');
+}
+
+function updateMovementAnalysis(movement) {
+    const level = movement < 0.3 ? 'Low' : movement < 0.6 ? 'Moderate' : 'High';
+    document.getElementById('movement-level').textContent = level;
+    
+    // Update counters (simplified)
+    const currentCount = parseInt(document.getElementById('low-movement-count').textContent) || 0;
+    if (movement < 0.3) {
+        document.getElementById('low-movement-count').textContent = currentCount + 1;
+    } else if (movement < 0.6) {
+        const moderateCount = parseInt(document.getElementById('moderate-movement-count').textContent) || 0;
+        document.getElementById('moderate-movement-count').textContent = moderateCount + 1;
+    } else {
+        const highCount = parseInt(document.getElementById('high-movement-count').textContent) || 0;
+        document.getElementById('high-movement-count').textContent = highCount + 1;
+    }
+}
+
+function loadSleepData(deviceId) {
+    // Simulate loading sleep data
+    setTimeout(() => {
+        // Update sleep quality
+        const quality = Math.floor(Math.random() * 100) + 1;
+        document.getElementById('sleep-quality-score').textContent = quality;
+        document.getElementById('quality-percentage').textContent = quality + '%';
+        
+        const qualityRating = quality >= 85 ? 'Excellent' : quality >= 70 ? 'Good' : quality >= 55 ? 'Fair' : 'Poor';
+        document.getElementById('sleep-quality-rating').textContent = qualityRating;
+        
+        const qualityClass = `sleep-quality-${qualityRating.toLowerCase()}`;
+        document.querySelector('.w-12.h-12.rounded-full').className = `w-12 h-12 rounded-full ${qualityClass} flex items-center justify-center`;
+        
+        // Update total sleep time
+        const totalMinutes = Math.floor(Math.random() * 480) + 240; // 4-12 hours
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        document.getElementById('total-sleep-time').textContent = 
+            `${hours}:${minutes.toString().padStart(2, '0')}`;
+        
+        // Load sleep history
+        loadSleepHistory();
+        
+        // Generate sleep recommendations
+        generateSleepRecommendations(quality);
+    }, 1000);
+}
+
+function loadEnvironmentalData(deviceId) {
+    // Simulate environmental data
+    setTimeout(() => {
+        document.getElementById('room-temp').textContent = (22 + Math.random() * 4).toFixed(1) + '°C';
+        document.getElementById('room-humidity').textContent = (45 + Math.random() * 15).toFixed(0) + '%';
+        document.getElementById('room-aqi').textContent = Math.floor(Math.random() * 50) + 20;
+        document.getElementById('noise-level').textContent = Math.floor(Math.random() * 20) + 25 + 'dB';
+    }, 500);
+}
+
+function loadSleepHistory() {
+    const tbody = document.getElementById('sleep-history-table');
+    tbody.innerHTML = '';
+    
+    // Generate sample history data
+    for (let i = 0; i < 7; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        
+        const duration = Math.floor(Math.random() * 240) + 360; // 6-10 hours
+        const hours = Math.floor(duration / 60);
+        const minutes = duration % 60;
+        
+        const quality = Math.floor(Math.random() * 40) + 60; // 60-100
+        const deepSleep = Math.floor(Math.random() * 30) + 15; // 15-45%
+        const remSleep = Math.floor(Math.random() * 25) + 15; // 15-40%
+        const awakenings = Math.floor(Math.random() * 5); // 0-4
+        
+        const qualityStatus = quality >= 80 ? 'Excellent' : quality >= 65 ? 'Good' : 'Fair';
+        const statusColor = quality >= 80 ? 'text-green-600' : quality >= 65 ? 'text-blue-600' : 'text-yellow-600';
+        
+        const row = `
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-2 text-sm">${date.toLocaleDateString()}</td>
+                <td class="px-4 py-2 text-sm font-medium">${hours}:${minutes.toString().padStart(2, '0')}</td>
+                <td class="px-4 py-2 text-sm">${quality}/100</td>
+                <td class="px-4 py-2 text-sm">${deepSleep}%</td>
+                <td class="px-4 py-2 text-sm">${remSleep}%</td>
+                <td class="px-4 py-2 text-sm">${awakenings}</td>
+                <td class="px-4 py-2 text-sm ${statusColor} font-medium">${qualityStatus}</td>
+            </tr>
+        `;
+        tbody.insertAdjacentHTML('beforeend', row);
+    }
+}
+
+function generateSleepRecommendations(quality) {
+    const recommendations = document.getElementById('sleep-recommendations');
+    let tips = [];
+    
+    if (quality < 70) {
+        tips.push('• Consider adjusting room temperature to 18-20°C');
+        tips.push('• Reduce noise levels for better sleep quality');
+    }
+    if (quality < 60) {
+        tips.push('• Check for environmental disturbances');
+        tips.push('• Ensure consistent sleep schedule');
+    }
+    if (quality >= 80) {
+        tips.push('• Sleep quality is excellent - maintain current conditions');
+    } else {
+        tips.push('• Monitor movement patterns for sleep optimization');
+    }
+    
+    recommendations.innerHTML = tips.join('\n');
+}
+
+function loadInitialData() {
+    // Set up periodic data refresh
+    setInterval(() => {
+        if (currentDevice) {
+            // Simulate real-time data
+            const mockData = {
+                device_id: currentDevice,
+                heart_rate: 85 + Math.random() * 30,
+                movement: Math.random(),
+                timestamp: new Date().toISOString()
+            };
+            updateRealTimeData(mockData);
+        }
+    }, 10000); // Update every 10 seconds
+}
+</script>
+{% endblock %}

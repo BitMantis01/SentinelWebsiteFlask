@@ -1,0 +1,717 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}NEWS - SENTINEL Dashboard{% endblock %}
+{% block page_title %}Newborn Early Warning Score (NEWS){% endblock %}
+
+{% block content %}
+<!-- NEWS System Status -->
+<div class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div class="mb-4 sm:mb-0">
+            <h2 class="text-lg font-semibold text-gray-800 mb-2">NEWS System Control</h2>
+            <div class="flex items-center space-x-4">
+                <label for="device-select" class="block text-sm font-medium text-gray-700">Select Footwear Monitor:</label>
+                <select id="device-select" class="w-full sm:w-64 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">Choose a device...</option>
+                    {% for device in current_user.footwear_monitors %}
+                        <option value="{{ device.device_id }}">{{ device.name }} ({{ device.baby_name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center">
+                <span class="text-sm font-medium text-gray-700 mr-3">NEWS System:</span>
+                <div class="relative inline-block w-12 mr-2 align-middle select-none">
+                    <input type="checkbox" id="news-toggle" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" />
+                    <label for="news-toggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                </div>
+                <span id="news-status-text" class="text-sm font-semibold">Loading...</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Disabled Overlay -->
+<div id="news-disabled-overlay" class="hidden fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center">
+    <div class="bg-white p-8 rounded-lg shadow-lg text-center max-w-md">
+        <div class="text-red-600 text-6xl mb-4">⚠️</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">NEWS System Disabled</h3>
+        <p class="text-gray-600 mb-4">The Newborn Early Warning Score system is currently disabled. Enable it to continue monitoring.</p>
+        <button onclick="toggleNews()" class="bg-red-600 text-white px-6 py-2 rounded-md hover:bg-red-700">
+            Enable NEWS System
+        </button>
+    </div>
+</div>
+
+<!-- Current Vital Signs & NEWS Score -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- Current Vitals -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Current Vital Signs</h2>
+        <div class="grid grid-cols-2 gap-4">
+            <div class="text-center p-4 bg-blue-50 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-600">Temperature</h3>
+                <p id="current-temp" class="text-2xl font-bold text-blue-600">--</p>
+                <p class="text-xs text-gray-500">°C</p>
+            </div>
+            <div class="text-center p-4 bg-red-50 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-600">Heart Rate</h3>
+                <p id="current-hr" class="text-2xl font-bold text-red-600">--</p>
+                <p class="text-xs text-gray-500">BPM</p>
+            </div>
+            <div class="text-center p-4 bg-green-50 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-600">SpO2</h3>
+                <p id="current-spo2" class="text-2xl font-bold text-green-600">--</p>
+                <p class="text-xs text-gray-500">%</p>
+            </div>
+            <div class="text-center p-4 bg-gray-50 rounded-lg">
+                <h3 class="text-sm font-medium text-gray-600">Last Update</h3>
+                <p id="last-update" class="text-sm font-medium text-gray-600">--</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEWS Score Display -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">NEWS Score</h2>
+        <div class="text-center">
+            <div id="news-score-circle" class="inline-flex items-center justify-center w-32 h-32 rounded-full bg-gray-200 mb-4">
+                <span id="total-score" class="text-4xl font-bold text-gray-600">--</span>
+            </div>
+            <div id="alert-message" class="text-lg font-semibold text-gray-600 mb-4">
+                System Ready
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-sm">
+                <div class="text-center p-2 rounded">
+                    <div class="font-medium">Temp</div>
+                    <div id="temp-score" class="text-lg font-bold">--</div>
+                </div>
+                <div class="text-center p-2 rounded">
+                    <div class="font-medium">HR</div>
+                    <div id="hr-score" class="text-lg font-bold">--</div>
+                </div>
+                <div class="text-center p-2 rounded">
+                    <div class="font-medium">SpO2</div>
+                    <div id="spo2-score" class="text-lg font-bold">--</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NEWS Clinical Reference -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex items-start space-x-4">
+        <div class="flex-shrink-0">
+            <span class="text-3xl">📋</span>
+        </div>
+        <div class="flex-grow">
+            <h3 class="text-lg font-semibold text-gray-900 mb-2">📖 Clinical Reference Documentation</h3>
+            <p class="text-gray-600 mb-4">
+                Access the official g-NEWS (generic Newborn Early Warning Score) documentation for comprehensive scoring guidelines, clinical implementation protocols, and best practices for newborn monitoring.
+            </p>
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <h4 class="font-medium text-blue-900 mb-2">📄 Official g-NEWS Guidelines</h4>
+                <p class="text-sm text-blue-800 mb-3">
+                    Download the complete clinical reference guide that includes detailed scoring criteria, escalation protocols, and evidence-based recommendations for newborn early warning systems.
+                </p>
+                <a href="https://clinicaldecisions.refined.site/download/attachments/91815996/g-NEWS-newborn-early-warning-score.pdf?download=true" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   class="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium transition-colors">
+                    <span>📄</span>
+                    <span>Download g-NEWS Clinical Guide</span>
+                    <span>↗</span>
+                </a>
+            </div>
+            <div class="mt-4 text-sm text-gray-600">
+                <p><strong>Note:</strong> This reference document provides the clinical foundation for the automated NEWS scoring implemented in this system. Please review the guidelines for proper clinical interpretation and response protocols.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NEWS Scoring Parameters Table -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <h2 class="text-xl font-bold mb-4">NEWS Scoring Parameters</h2>
+    <div class="overflow-x-auto">
+        <table class="min-w-full bg-white border border-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Parameter</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FF2C2C; color: white;">Score 3</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FF7518; color: white;">Score 2</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FFDE21; color: black;">Score 1</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #00FF00; color: black;">Score 0</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FFDE21; color: black;">Score 1</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FF7518; color: white;">Score 2</th>
+                    <th class="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b" style="background-color: #FF2C2C; color: white;">Score 3</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                <tr>
+                    <td class="py-4 px-4 text-sm font-medium text-gray-900">Temperature (°C)</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">-</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">≤35.9</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">36.0-36.4</td>
+                    <td class="py-4 px-4 text-sm text-center font-semibold" style="background-color: #E6FFE6;">36.5-37.5</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">37.6-38.0</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">≥38.1</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">-</td>
+                </tr>
+                <tr>
+                    <td class="py-4 px-4 text-sm font-medium text-gray-900">Heart Rate (BPM)</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">&lt;60 or ≥190</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">180-189</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">160-179</td>
+                    <td class="py-4 px-4 text-sm text-center font-semibold" style="background-color: #E6FFE6;">100-159</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">80-99</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">70-79</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">60-69</td>
+                </tr>
+                <tr>
+                    <td class="py-4 px-4 text-sm font-medium text-gray-900">SpO2 (%)</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">-</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">≤89</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">90-94</td>
+                    <td class="py-4 px-4 text-sm text-center font-semibold" style="background-color: #E6FFE6;">≥95</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFF8E6;">-</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">-</td>
+                    <td class="py-4 px-4 text-sm text-center" style="background-color: #FFE6E6;">-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Alert Levels -->
+    <div class="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="p-4 rounded-lg text-center" style="background-color: #E6FFE6; border: 2px solid #00FF00;">
+            <div class="font-bold text-lg">Green Alert</div>
+            <div class="text-sm">Score: 0</div>
+            <div class="text-xs mt-1">Normal monitoring</div>
+        </div>
+        <div class="p-4 rounded-lg text-center" style="background-color: #FFF8E6; border: 2px solid #FFDE21;">
+            <div class="font-bold text-lg">Yellow Alert</div>
+            <div class="text-sm">Score: 1</div>
+            <div class="text-xs mt-1">Notify pediatrician within 1 hour</div>
+        </div>
+        <div class="p-4 rounded-lg text-center" style="background-color: #FFE6E6; border: 2px solid #FF7518;">
+            <div class="font-bold text-lg">Orange Alert</div>
+            <div class="text-sm">Score: 2</div>
+            <div class="text-xs mt-1">Notify pediatrician within 30 minutes</div>
+        </div>
+        <div class="p-4 rounded-lg text-center" style="background-color: #FFE6E6; border: 2px solid #FF2C2C;">
+            <div class="font-bold text-lg">Red Alert</div>
+            <div class="text-sm">Score: ≥3</div>
+            <div class="text-xs mt-1">IMMEDIATE pediatrician review</div>
+        </div>
+    </div>
+</div>
+
+<!-- Score Calculation Section -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <h2 class="text-xl font-bold mb-4">Real-Time Score Calculation</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="text-center p-4 border rounded-lg">
+            <h3 class="font-semibold mb-2">Temperature</h3>
+            <div id="calc-temp" class="text-2xl font-bold text-blue-600 mb-1">--°C</div>
+            <div id="calc-temp-range" class="text-sm text-gray-600 mb-2">Range: --</div>
+            <div id="calc-temp-score" class="inline-block px-3 py-1 rounded-full text-white font-bold">Score: --</div>
+        </div>
+        <div class="text-center p-4 border rounded-lg">
+            <h3 class="font-semibold mb-2">Heart Rate</h3>
+            <div id="calc-hr" class="text-2xl font-bold text-red-600 mb-1">-- BPM</div>
+            <div id="calc-hr-range" class="text-sm text-gray-600 mb-2">Range: --</div>
+            <div id="calc-hr-score" class="inline-block px-3 py-1 rounded-full text-white font-bold">Score: --</div>
+        </div>
+        <div class="text-center p-4 border rounded-lg">
+            <h3 class="font-semibold mb-2">SpO2</h3>
+            <div id="calc-spo2" class="text-2xl font-bold text-green-600 mb-1">--%</div>
+            <div id="calc-spo2-range" class="text-sm text-gray-600 mb-2">Range: --</div>
+            <div id="calc-spo2-score" class="inline-block px-3 py-1 rounded-full text-white font-bold">Score: --</div>
+        </div>
+    </div>
+    <div class="mt-6 text-center">
+        <div class="inline-block p-4 border-2 rounded-lg">
+            <div class="text-lg font-semibold mb-2">Total NEWS Score</div>
+            <div id="calc-total-score" class="text-4xl font-bold">--</div>
+            <div id="calc-alert-level" class="mt-2 px-4 py-2 rounded-full text-white font-bold">--</div>
+        </div>
+    </div>
+</div>
+
+<!-- Historical Data -->
+<div class="bg-white p-6 rounded-lg shadow-md">
+    <h2 class="text-xl font-bold mb-4">NEWS History</h2>
+    <div class="overflow-x-auto">
+        <table class="min-w-full bg-white">
+            <thead class="bg-gray-800 text-white">
+                <tr>
+                    <th class="py-2 px-4 text-left">Time</th>
+                    <th class="py-2 px-4 text-left">Temp</th>
+                    <th class="py-2 px-4 text-left">HR</th>
+                    <th class="py-2 px-4 text-left">SpO2</th>
+                    <th class="py-2 px-4 text-left">NEWS Score</th>
+                    <th class="py-2 px-4 text-left">Alert Level</th>
+                    <th class="py-2 px-4 text-left">Action Required</th>
+                </tr>
+            </thead>
+            <tbody id="news-history" class="text-gray-700">
+                <!-- Data will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+<style>
+/* Toggle Switch Styles */
+.toggle-checkbox:checked {
+    right: 0;
+    border-color: #22c55e;
+}
+.toggle-checkbox:checked + .toggle-label {
+    background-color: #22c55e;
+}
+.toggle-label {
+    transition: background-color 0.3s ease;
+}
+.toggle-checkbox {
+    transition: all 0.3s ease;
+    top: 0;
+    right: 1.5rem;
+}
+
+/* Alert Level Colors */
+.alert-green { background-color: #00FF00; color: black; }
+.alert-yellow { background-color: #FFDE21; color: black; }
+.alert-orange { background-color: #FF7518; color: white; }
+.alert-red { background-color: #FF2C2C; color: white; }
+
+/* News Score Circle Colors */
+.score-green { background-color: #E6FFE6; border: 3px solid #00FF00; }
+.score-yellow { background-color: #FFF8E6; border: 3px solid #FFDE21; }
+.score-orange { background-color: #FFE6E6; border: 3px solid #FF7518; }
+.score-red { background-color: #FFE6E6; border: 3px solid #FF2C2C; }
+</style>
+
+<script>
+// Global variables
+let socket;
+let newsEnabled = false;
+let currentDeviceId = null;
+let refreshInterval;
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚨 NEWS dashboard initializing...');
+    
+    // Initialize WebSocket connection
+    initializeWebSocket();
+    
+    // Load NEWS status
+    loadNewsStatus();
+    
+    // Auto-select first device if available
+    const deviceSelect = document.getElementById('device-select');
+    if (deviceSelect.options.length > 1) {
+        deviceSelect.selectedIndex = 1;
+        currentDeviceId = deviceSelect.value;
+        console.log('🎯 Auto-selected device:', currentDeviceId);
+        loadCurrentData();
+        loadHistoryData();
+    }
+    
+    // Device selection handler
+    deviceSelect.addEventListener('change', function() {
+        currentDeviceId = this.value;
+        if (currentDeviceId) {
+            console.log(`📱 Device selected: ${currentDeviceId}`);
+            loadCurrentData();
+            loadHistoryData();
+        } else {
+            clearDisplays();
+        }
+    });
+    
+    // News toggle handler
+    document.getElementById('news-toggle').addEventListener('change', toggleNews);
+    
+    // Auto-refresh every 5 seconds for current data
+    refreshInterval = setInterval(() => {
+        if (currentDeviceId && newsEnabled) {
+            loadCurrentData();
+        }
+    }, 5000);
+    
+    // Auto-refresh history every 30 seconds
+    setInterval(() => {
+        if (currentDeviceId) {
+            loadHistoryData();
+        }
+    }, 30000);
+});
+
+// WebSocket initialization
+function initializeWebSocket() {
+    try {
+        socket = io();
+        
+        socket.on('connect', function() {
+            console.log('📡 WebSocket connected');
+        });
+        
+        socket.on('disconnect', function() {
+            console.log('📡 WebSocket disconnected');
+        });
+        
+        socket.on('new_data', function(data) {
+            console.log('📊 Real-time data received:', data);
+            if (data.device_id === currentDeviceId) {
+                updateCurrentDisplay(data);
+                loadHistoryData(); // Refresh history when new data arrives
+            }
+        });
+        
+        socket.on('news_score_update', function(data) {
+            console.log('🚨 NEWS score update:', data);
+            if (data.device_id === currentDeviceId) {
+                updateNewsScore(data.news_score);
+            }
+        });
+    } catch (error) {
+        console.warn('WebSocket not available, falling back to HTTP polling:', error);
+    }
+}
+
+// Load NEWS system status
+function loadNewsStatus() {
+    fetch('/api/news/status')
+        .then(response => response.json())
+        .then(data => {
+            newsEnabled = data.news_enabled;
+            updateNewsStatusDisplay();
+        })
+        .catch(error => {
+            console.error('Error loading NEWS status:', error);
+        });
+}
+
+// Toggle NEWS system
+function toggleNews() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    fetch('/api/news/toggle', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        newsEnabled = data.news_enabled;
+        updateNewsStatusDisplay();
+        showNotification(data.message, newsEnabled ? 'success' : 'warning');
+        
+        if (currentDeviceId) {
+            loadCurrentData();
+        }
+    })
+    .catch(error => {
+        console.error('Error toggling NEWS:', error);
+        showNotification('Error toggling NEWS system', 'error');
+    });
+}
+
+// Update NEWS status display
+function updateNewsStatusDisplay() {
+    const toggle = document.getElementById('news-toggle');
+    const statusText = document.getElementById('news-status-text');
+    const overlay = document.getElementById('news-disabled-overlay');
+    
+    toggle.checked = newsEnabled;
+    statusText.textContent = newsEnabled ? 'ENABLED' : 'DISABLED';
+    statusText.className = `text-sm font-semibold ${newsEnabled ? 'text-green-600' : 'text-red-600'}`;
+    
+    if (newsEnabled) {
+        overlay.classList.add('hidden');
+    } else {
+        overlay.classList.remove('hidden');
+    }
+}
+
+// Load current vital data
+function loadCurrentData() {
+    if (!currentDeviceId) return;
+    
+    fetch(`/api/news/current_vital_data?device_id=${currentDeviceId}`)
+        .then(response => response.json())
+        .then(data => {
+            updateCurrentDisplay(data);
+            if (data.news_score) {
+                updateNewsScore(data.news_score);
+                updateCalculationDisplay(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading current data:', error);
+        });
+}
+
+// Update current display
+function updateCurrentDisplay(data) {
+    document.getElementById('current-temp').textContent = data.temperature ? data.temperature.toFixed(1) : '--';
+    document.getElementById('current-hr').textContent = data.heart_rate || '--';
+    document.getElementById('current-spo2').textContent = data.spo2 || '--';
+    document.getElementById('last-update').textContent = data.timestamp ? 
+        formatToPhilippineTime(data.timestamp) : '--';
+}
+
+// Update NEWS score display
+function updateNewsScore(newsScore) {
+    const totalScore = newsScore.total_score;
+    const alertLevel = newsScore.alert_level.toLowerCase();
+    
+    // Update main score display
+    document.getElementById('total-score').textContent = totalScore;
+    document.getElementById('alert-message').textContent = newsScore.alert_message;
+    
+    // Update component scores
+    document.getElementById('temp-score').textContent = newsScore.temperature_score;
+    document.getElementById('hr-score').textContent = newsScore.heart_rate_score;
+    document.getElementById('spo2-score').textContent = newsScore.spo2_score;
+    
+    // Update circle color
+    const circle = document.getElementById('news-score-circle');
+    circle.className = `inline-flex items-center justify-center w-32 h-32 rounded-full score-${alertLevel}`;
+    
+    // Update total score color
+    const scoreElement = document.getElementById('total-score');
+    scoreElement.className = `text-4xl font-bold ${getScoreTextColor(alertLevel)}`;
+}
+
+// Update real-time calculation display
+function updateCalculationDisplay(data) {
+    const temp = data.temperature;
+    const hr = data.heart_rate;
+    const spo2 = data.spo2;
+    
+    // Temperature calculation
+    document.getElementById('calc-temp').textContent = temp ? `${temp.toFixed(1)}°C` : '--°C';
+    if (temp) {
+        const tempRange = getTempRange(temp);
+        const tempScore = calculateTempScore(temp);
+        document.getElementById('calc-temp-range').textContent = `Range: ${tempRange}`;
+        updateScoreDisplay('calc-temp-score', tempScore);
+    }
+    
+    // Heart rate calculation
+    document.getElementById('calc-hr').textContent = hr ? `${hr} BPM` : '-- BPM';
+    if (hr) {
+        const hrRange = getHRRange(hr);
+        const hrScore = calculateHRScore(hr);
+        document.getElementById('calc-hr-range').textContent = `Range: ${hrRange}`;
+        updateScoreDisplay('calc-hr-score', hrScore);
+    }
+    
+    // SpO2 calculation
+    document.getElementById('calc-spo2').textContent = spo2 ? `${spo2}%` : '--%';
+    if (spo2) {
+        const spo2Range = getSpO2Range(spo2);
+        const spo2Score = calculateSpO2Score(spo2);
+        document.getElementById('calc-spo2-range').textContent = `Range: ${spo2Range}`;
+        updateScoreDisplay('calc-spo2-score', spo2Score);
+    }
+    
+    // Total calculation
+    if (temp && hr && spo2) {
+        const totalScore = calculateTempScore(temp) + calculateHRScore(hr) + calculateSpO2Score(spo2);
+        document.getElementById('calc-total-score').textContent = totalScore;
+        
+        const alertLevel = getAlertLevel(totalScore);
+        const alertElement = document.getElementById('calc-alert-level');
+        alertElement.textContent = alertLevel.toUpperCase();
+        alertElement.className = `mt-2 px-4 py-2 rounded-full text-white font-bold alert-${alertLevel}`;
+    }
+}
+
+// Helper functions for scoring
+function calculateTempScore(temp) {
+    if (temp <= 35.9) return 2;
+    if (temp >= 36.0 && temp <= 36.4) return 1;
+    if (temp >= 36.5 && temp <= 37.5) return 0;
+    if (temp >= 37.6 && temp <= 38.0) return 1;
+    if (temp >= 38.1) return 2;
+    return 0;
+}
+
+function calculateHRScore(hr) {
+    if (hr < 60 || hr >= 190) return 3;
+    if (hr >= 60 && hr <= 69) return 3;
+    if (hr >= 70 && hr <= 79) return 2;
+    if (hr >= 80 && hr <= 99) return 1;
+    if (hr >= 100 && hr <= 159) return 0;
+    if (hr >= 160 && hr <= 179) return 1;
+    if (hr >= 180 && hr <= 189) return 2;
+    return 0;
+}
+
+function calculateSpO2Score(spo2) {
+    if (spo2 <= 89) return 2;
+    if (spo2 >= 90 && spo2 <= 94) return 1;
+    if (spo2 >= 95) return 0;
+    return 0;
+}
+
+function getTempRange(temp) {
+    if (temp <= 35.9) return '≤35.9';
+    if (temp >= 36.0 && temp <= 36.4) return '36.0-36.4';
+    if (temp >= 36.5 && temp <= 37.5) return '36.5-37.5 (Normal)';
+    if (temp >= 37.6 && temp <= 38.0) return '37.6-38.0';
+    if (temp >= 38.1) return '≥38.1';
+    return 'Unknown';
+}
+
+function getHRRange(hr) {
+    if (hr < 60) return '<60';
+    if (hr >= 60 && hr <= 69) return '60-69';
+    if (hr >= 70 && hr <= 79) return '70-79';
+    if (hr >= 80 && hr <= 99) return '80-99';
+    if (hr >= 100 && hr <= 159) return '100-159 (Normal)';
+    if (hr >= 160 && hr <= 179) return '160-179';
+    if (hr >= 180 && hr <= 189) return '180-189';
+    if (hr >= 190) return '≥190';
+    return 'Unknown';
+}
+
+function getSpO2Range(spo2) {
+    if (spo2 <= 89) return '≤89';
+    if (spo2 >= 90 && spo2 <= 94) return '90-94';
+    if (spo2 >= 95) return '≥95 (Normal)';
+    return 'Unknown';
+}
+
+function getAlertLevel(score) {
+    if (score === 0) return 'green';
+    if (score === 1) return 'yellow';
+    if (score === 2) return 'orange';
+    return 'red';
+}
+
+function updateScoreDisplay(elementId, score) {
+    const element = document.getElementById(elementId);
+    const alertLevel = getAlertLevel(score);
+    element.textContent = `Score: ${score}`;
+    element.className = `inline-block px-3 py-1 rounded-full text-white font-bold alert-${alertLevel}`;
+}
+
+function getScoreTextColor(alertLevel) {
+    const colors = {
+        'green': 'text-green-600',
+        'yellow': 'text-yellow-600',
+        'orange': 'text-orange-600',
+        'red': 'text-red-600'
+    };
+    return colors[alertLevel] || 'text-gray-600';
+}
+
+// Load historical data
+function loadHistoryData() {
+    if (!currentDeviceId) return;
+    
+    fetch(`/api/news/history?device_id=${currentDeviceId}&limit=20`)
+        .then(response => response.json())
+        .then(data => {
+            updateHistoryTable(data.history);
+        })
+        .catch(error => {
+            console.error('Error loading history data:', error);
+        });
+}
+
+// Update history table
+function updateHistoryTable(history) {
+    const tbody = document.getElementById('news-history');
+    if (!history || history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">No NEWS data available</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = history.map(item => {
+        const timestamp = formatToPhilippineTime(item.timestamp);
+        const newsScore = item.news_score;
+        const alertLevel = newsScore.alert_level.toLowerCase();
+        
+        return `<tr class="border-b hover:bg-gray-50">
+            <td class="py-2 px-4">${timestamp}</td>
+            <td class="py-2 px-4">${item.temperature.toFixed(1)}°C</td>
+            <td class="py-2 px-4">${item.heart_rate} BPM</td>
+            <td class="py-2 px-4">${item.spo2}%</td>
+            <td class="py-2 px-4">
+                <span class="inline-block px-2 py-1 rounded-full text-sm font-bold alert-${alertLevel}">
+                    ${newsScore.total_score}
+                </span>
+            </td>
+            <td class="py-2 px-4">
+                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold alert-${alertLevel}">
+                    ${newsScore.alert_level}
+                </span>
+            </td>
+            <td class="py-2 px-4 text-sm">${newsScore.alert_message}</td>
+        </tr>`;
+    }).join('');
+}
+
+// Clear displays
+function clearDisplays() {
+    document.getElementById('current-temp').textContent = '--';
+    document.getElementById('current-hr').textContent = '--';
+    document.getElementById('current-spo2').textContent = '--';
+    document.getElementById('last-update').textContent = '--';
+    document.getElementById('total-score').textContent = '--';
+    document.getElementById('alert-message').textContent = 'System Ready';
+    
+    // Clear component scores
+    document.getElementById('temp-score').textContent = '--';
+    document.getElementById('hr-score').textContent = '--';
+    document.getElementById('spo2-score').textContent = '--';
+    
+    // Clear calculation display
+    document.getElementById('calc-temp').textContent = '--°C';
+    document.getElementById('calc-hr').textContent = '-- BPM';
+    document.getElementById('calc-spo2').textContent = '--%';
+    document.getElementById('calc-total-score').textContent = '--';
+}
+
+// Utility function for time formatting (using function from layout.html)
+function formatToPhilippineTime(timestamp) {
+    const date = new Date(timestamp + 'Z');
+    return date.toLocaleString('en-PH', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+    if (socket) {
+        socket.disconnect();
+    }
+});
+
+console.log('🚨 NEWS dashboard script loaded');
+</script>
+{% endblock %}

@@ -1,0 +1,272 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Profile - SENTINEL Dashboard{% endblock %}
+{% block page_title %}User Profile & Settings{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Profile Details -->
+    <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Profile Details</h2>
+        
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h3 class="text-lg font-semibold mb-2">Your API Key</h3>
+            <p class="text-gray-600 bg-white p-3 rounded border border-gray-300 font-mono text-sm break-all">{{ current_user.api_key }}</p>
+            <p class="text-xs text-gray-500 mt-2">⚠️ Keep this secret! Use this key in the <code class="bg-gray-200 px-1 rounded">x-api-key</code> header for API requests.</p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('main.profile') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="action" value="update_profile"/>
+            
+            <div class="mb-4">
+                <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input type="text" id="name" name="name" value="{{ current_user.name }}" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            
+            <div class="mb-4">
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input type="email" id="email" value="{{ current_user.email }}" disabled
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed">
+                <p class="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+            </div>
+            
+            <div class="mb-4">
+                <label for="contact_number" class="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+                <input type="tel" id="contact_number" name="contact_number" value="{{ current_user.contact_number or '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                       placeholder="+1234567890">
+            </div>
+            
+            {% if current_user.use_case == 'Home' %}
+            <div class="mb-4">
+                <label for="birthday" class="block text-sm font-medium text-gray-700 mb-1">Baby's Birthday</label>
+                <input type="date" id="birthday" name="birthday" value="{{ current_user.birthday if current_user.birthday else '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            {% else %}
+            <div class="mb-4">
+                <label for="hospital_name" class="block text-sm font-medium text-gray-700 mb-1">Hospital Name</label>
+                <input type="text" id="hospital_name" name="hospital_name" value="{{ current_user.hospital_name or '' }}"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                       placeholder="Enter hospital name">
+            </div>
+            {% endif %}
+            
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+                <input type="text" value="{{ current_user.use_case }}" disabled
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed">
+                <p class="text-xs text-gray-500 mt-1">Account type cannot be changed</p>
+            </div>
+            
+            <button type="submit" class="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 transition font-semibold">
+                💾 Update Profile
+            </button>
+        </form>
+    </div>
+
+    <!-- Change Password -->
+    <div class="lg:col-span-1 bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Change Password</h2>
+        <form method="POST" action="{{ url_for('main.profile') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="action" value="change_password"/>
+            
+            <div class="mb-4">
+                <label for="current_password" class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                <input type="password" id="current_password" name="current_password" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            
+            <div class="mb-4">
+                <label for="new_password" class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                <input type="password" id="new_password" name="new_password" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <p class="text-xs text-gray-500 mt-1">Min 8 chars, uppercase, lowercase, number, special char</p>
+            </div>
+            
+            <div class="mb-4">
+                <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            
+            <button type="submit" class="w-full bg-orange-500 text-white py-2 px-4 rounded-md hover:bg-orange-600 transition">
+                Change Password
+            </button>
+        </form>
+    </div>
+
+    <!-- Linked Devices -->
+    <div class="lg:col-span-3 bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Linked Devices</h2>
+        
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-3 flex items-center">
+                <span class="text-2xl mr-2">📹</span> Camera Boxes
+            </h3>
+            {% if current_user.camera_boxes %}
+                {% for device in current_user.camera_boxes %}
+                <div class="flex justify-between items-center p-3 border-b hover:bg-gray-50">
+                    <div>
+                        <span class="font-medium">{{ device.name }}</span>
+                        <span class="text-gray-500 text-sm ml-2">({{ device.device_id }})</span>
+                    </div>
+                    <form method="POST" action="{{ url_for('main.unlink_device', device_type='camera', device_id=device.id) }}" 
+                          onsubmit="return confirm('Are you sure you want to unlink {{ device.name }}?');" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="text-red-500 hover:text-red-700 font-medium transition">
+                            🗑️ Unlink
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-gray-500 text-sm italic py-2">No camera boxes linked yet.</p>
+            {% endif %}
+            <button onclick="openModal('camera-modal')" class="mt-3 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition">
+                ➕ Link New Camera Box
+            </button>
+        </div>
+
+        <div class="mb-6">
+            <h3 class="text-lg font-semibold mb-3 flex items-center">
+                <span class="text-2xl mr-2">🌡️</span> Environmental/Hub Boxes
+            </h3>
+            {% if current_user.envhub_boxes %}
+                {% for device in current_user.envhub_boxes %}
+                <div class="flex justify-between items-center p-3 border-b hover:bg-gray-50">
+                    <div>
+                        <span class="font-medium">{{ device.name }}</span>
+                        <span class="text-gray-500 text-sm ml-2">({{ device.device_id }})</span>
+                    </div>
+                    <form method="POST" action="{{ url_for('main.unlink_device', device_type='envhub', device_id=device.id) }}" 
+                          onsubmit="return confirm('Are you sure you want to unlink {{ device.name }}?');" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="text-red-500 hover:text-red-700 font-medium transition">
+                            🗑️ Unlink
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-gray-500 text-sm italic py-2">No environmental boxes linked yet.</p>
+            {% endif %}
+            <button onclick="openModal('envhub-modal')" class="mt-3 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition">
+                ➕ Link New Hub Box
+            </button>
+        </div>
+
+        <div>
+            <h3 class="text-lg font-semibold mb-3 flex items-center">
+                <span class="text-2xl mr-2">👟</span> Footwear Monitors
+            </h3>
+            {% if current_user.footwear_monitors %}
+                {% for device in current_user.footwear_monitors %}
+                <div class="flex justify-between items-center p-3 border-b hover:bg-gray-50">
+                    <div>
+                        <span class="font-medium">{{ device.name }}</span>
+                        <span class="text-gray-500 text-sm ml-2">- {{ device.baby_name }} ({{ device.device_id }})</span>
+                    </div>
+                    <form method="POST" action="{{ url_for('main.unlink_device', device_type='footwear', device_id=device.id) }}" 
+                          onsubmit="return confirm('Are you sure you want to unlink {{ device.name }} for {{ device.baby_name }}?');" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="text-red-500 hover:text-red-700 font-medium transition">
+                            🗑️ Unlink
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-gray-500 text-sm italic py-2">No footwear monitors linked yet.</p>
+            {% endif %}
+            <button onclick="openModal('footwear-modal')" class="mt-3 bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition">
+                ➕ Link New Footwear Monitor
+            </button>
+        </div>
+    </div>
+
+    <!-- Delete Account -->
+    <div class="lg:col-span-3 bg-red-100 p-6 rounded-lg shadow-md border border-red-400">
+        <h2 class="text-xl font-bold text-red-800 mb-4">Delete Account</h2>
+        <p class="text-red-700 mb-4">⚠️ This action is irreversible. All your data will be permanently deleted.</p>
+        <form method="POST" action="{{ url_for('main.profile') }}" onsubmit="return confirm('Are you absolutely sure you want to delete your account? This cannot be undone!');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="action" value="delete_account"/>
+            
+            <div class="mb-4 max-w-md">
+                <label for="delete_password" class="block text-sm font-medium text-red-800 mb-1">Confirm Your Password</label>
+                <input type="password" id="delete_password" name="delete_password" required
+                       class="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                       placeholder="Enter your password to confirm">
+            </div>
+            
+            <button type="submit" class="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition font-semibold">
+                🗑️ Delete My Account Permanently
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Modals for linking devices -->
+<div id="camera-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <h3 class="text-lg font-medium text-gray-900">Link Camera Box</h3>
+        <form method="POST" action="{{ url_for('main.link_device', device_type='camera') }}" class="mt-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="text" name="device_id" placeholder="Device ID (e.g., 04Hn12)" class="w-full p-2 border rounded" required>
+            <input type="text" name="name" placeholder="Device Name" class="w-full p-2 border rounded mt-2" required>
+            <div class="mt-4 flex justify-end">
+                <button type="button" onclick="closeModal('camera-modal')" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-md mr-2">Cancel</button>
+                <button type="submit" class="bg-blue-500 text-white py-2 px-4 rounded-md">Link</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="envhub-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <h3 class="text-lg font-medium text-gray-900">Link Environmental/Hub Box</h3>
+        <form method="POST" action="{{ url_for('main.link_device', device_type='envhub') }}" class="mt-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="text" name="device_id" placeholder="Device ID (e.g., A1iya8)" class="w-full p-2 border rounded" required>
+            <input type="text" name="name" placeholder="Device Name" class="w-full p-2 border rounded mt-2" required>
+            <div class="mt-4 flex justify-end">
+                <button type="button" onclick="closeModal('envhub-modal')" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-md mr-2">Cancel</button>
+                <button type="submit" class="bg-blue-500 text-white py-2 px-4 rounded-md">Link</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="footwear-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <h3 class="text-lg font-medium text-gray-900">Link Footwear Monitor</h3>
+        <form method="POST" action="{{ url_for('main.link_device', device_type='footwear') }}" class="mt-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="text" name="device_id" placeholder="Device ID (e.g., gGA81F)" class="w-full p-2 border rounded" required>
+            <input type="text" name="name" placeholder="Device Name" class="w-full p-2 border rounded mt-2" required>
+            <input type="text" name="baby_name" placeholder="Baby's Name" class="w-full p-2 border rounded mt-2" required>
+            <div class="mt-4 flex justify-end">
+                <button type="button" onclick="closeModal('footwear-modal')" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-md mr-2">Cancel</button>
+                <button type="submit" class="bg-blue-500 text-white py-2 px-4 rounded-md">Link</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function openModal(modalId) {
+        document.getElementById(modalId).style.display = 'block';
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).style.display = 'none';
+    }
+</script>
+{% endblock %}

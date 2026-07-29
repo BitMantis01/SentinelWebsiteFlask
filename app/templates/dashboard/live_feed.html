@@ -1,0 +1,329 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Live Feed - SENTINEL Dashboard{% endblock %}
+{% block page_title %}Live Camera Feed{% endblock %}
+
+{% block content %}
+<!-- Device Selection -->
+<div class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div class="mb-4 sm:mb-0">
+            <label for="camera-device-select" class="block text-sm font-medium text-gray-700 mb-2">Select Camera:</label>
+            <select id="camera-device-select" class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Loading cameras...</option>
+            </select>
+        </div>
+        <div class="flex space-x-2">
+            <button onclick="autoRefreshToggle()" id="auto-refresh-btn" class="px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700">Auto Refresh: ON</button>
+            <button onclick="manualRefresh()" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Refresh Now</button>
+        </div>
+    </div>
+</div>
+
+<div class="space-y-6">
+    <!-- Live Image -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Current View</h2>
+            <span id="last-updated" class="text-sm text-gray-500">--</span>
+        </div>
+        <div class="bg-gray-100 rounded-lg overflow-hidden">
+            <img id="live-image" src="" alt="No image available" class="w-full h-auto min-h-[350px] max-h-[400px] object-contain bg-black rounded-lg" style="display: none;">
+            <div id="no-image-placeholder" class="flex items-center justify-center h-[350px] text-gray-500 bg-gray-50 rounded-lg">
+                <div class="text-center">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <p class="mt-2">No image available</p>
+                    <p class="text-sm">Select a camera to view live feed</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Navigation -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">Recent Images</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div class="mb-2 sm:mb-0">
+                <span id="image-count" class="text-sm text-gray-600">0 images available</span>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="navigateImage('prev')" id="prev-btn" class="px-3 py-1 bg-gray-300 text-gray-600 rounded-md text-sm" disabled>← Previous</button>
+                <span id="image-position" class="px-3 py-1 text-sm">-</span>
+                <button onclick="navigateImage('next')" id="next-btn" class="px-3 py-1 bg-gray-300 text-gray-600 rounded-md text-sm" disabled>Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera History Table -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Image History</h2>
+            <button onclick="setImageTimeRange(24)" class="px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Last 24H</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white">
+                <thead class="bg-gray-800 text-white">
+                    <tr>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Timestamp</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Image</th>
+                        <th class="text-left py-3 px-4 uppercase font-semibold text-sm">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-700" id="camera-history-table">
+                    <tr>
+                        <td colspan="3" class="text-center py-8 text-gray-500">Select a camera to view history</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div id="image-preview-modal" class="fixed inset-0 custom-modal items-center justify-center hidden z-50">
+    <div class="bg-white p-6 rounded-lg shadow-lg max-w-4xl w-full mx-4 max-h-screen overflow-auto">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">Image Preview</h3>
+            <button onclick="closeModal('image-preview-modal')" class="text-gray-500 hover:text-gray-700">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <div class="text-center">
+            <img id="preview-image" src="" alt="Preview" class="max-w-full max-h-[70vh] w-auto h-auto rounded-lg shadow-lg bg-black">
+            <p id="preview-timestamp" class="mt-3 text-sm text-gray-600 font-medium"></p>
+        </div>
+    </div>
+</div>
+
+<!-- No Cameras Modal -->
+<div id="no-cameras-modal" class="fixed inset-0 custom-modal items-center justify-center hidden z-50">
+    <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+        <h3 class="text-lg font-bold mb-4">No Camera Devices</h3>
+        <p class="text-gray-600 mb-4">You haven't linked any camera box devices yet. Please go to your profile to link devices first.</p>
+        <div class="flex justify-end space-x-2">
+            <button onclick="closeModal('no-cameras-modal')" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-md">OK</button>
+            <a href="{{ url_for('main.profile') }}" class="bg-indigo-600 text-white py-2 px-4 rounded-md">Go to Profile</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cameraImages = [];
+let currentImageIndex = 0;
+let autoRefreshEnabled = true;
+let refreshInterval;
+
+function openModal(modalId) {
+    document.getElementById(modalId).classList.remove('hidden');
+    document.getElementById(modalId).classList.add('flex');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+    document.getElementById(modalId).classList.remove('flex');
+}
+
+function loadCameraDevices() {
+    const cameraDevices = {{ current_user.camera_boxes | map(attribute='id') | list | tojson }};
+    const deviceNames = {{ current_user.camera_boxes | map(attribute='name') | list | tojson }};
+    
+    const select = document.getElementById('camera-device-select');
+    select.innerHTML = '';
+    
+    if (cameraDevices.length === 0) {
+        select.innerHTML = '<option value="">No cameras linked</option>';
+        openModal('no-cameras-modal');
+        return;
+    }
+    
+    select.innerHTML = '<option value="">Select a camera...</option>';
+    cameraDevices.forEach((deviceId, index) => {
+        const option = document.createElement('option');
+        option.value = deviceId;
+        option.textContent = deviceNames[index];
+        select.appendChild(option);
+    });
+    
+    // Auto-select first camera
+    if (cameraDevices.length > 0) {
+        select.value = cameraDevices[0];
+        loadCameraImages();
+    }
+}
+
+function loadCameraImages() {
+    const deviceId = document.getElementById('camera-device-select').value;
+    if (!deviceId) return;
+    
+    showLoading();
+    
+    fetch(`/api/dashboard/images?device_id=${deviceId}&limit=20`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Camera images received:', data);
+            cameraImages = data.images;
+            currentImageIndex = 0;
+            updateImageDisplay();
+            updateHistoryTable();
+            hideLoading();
+        })
+        .catch(error => {
+            console.error('Error loading camera images:', error);
+            showNotification('Error loading camera images: ' + error.message, 'error');
+            hideLoading();
+        });
+}
+
+function updateImageDisplay() {
+    const imageElement = document.getElementById('live-image');
+    const placeholder = document.getElementById('no-image-placeholder');
+    const lastUpdated = document.getElementById('last-updated');
+    const imageCount = document.getElementById('image-count');
+    const imagePosition = document.getElementById('image-position');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    
+    if (cameraImages.length === 0) {
+        imageElement.style.display = 'none';
+        placeholder.style.display = 'flex';
+        lastUpdated.textContent = 'No images available';
+        imageCount.textContent = '0 images available';
+        imagePosition.textContent = '-';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        return;
+    }
+    
+    const currentImage = cameraImages[currentImageIndex];
+    imageElement.src = `data:image/jpeg;base64,${currentImage.image_data}`;
+    imageElement.style.display = 'block';
+    placeholder.style.display = 'none';
+    lastUpdated.textContent = `Last updated: ${formatToPhilippineTime(currentImage.timestamp)}`;
+    imageCount.textContent = `${cameraImages.length} images available`;
+    imagePosition.textContent = `${currentImageIndex + 1} of ${cameraImages.length}`;
+    
+    prevBtn.disabled = currentImageIndex === 0;
+    nextBtn.disabled = currentImageIndex === cameraImages.length - 1;
+    
+    if (!prevBtn.disabled) {
+        prevBtn.className = 'px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700';
+    } else {
+        prevBtn.className = 'px-3 py-1 bg-gray-300 text-gray-600 rounded-md text-sm';
+    }
+    
+    if (!nextBtn.disabled) {
+        nextBtn.className = 'px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700';
+    } else {
+        nextBtn.className = 'px-3 py-1 bg-gray-300 text-gray-600 rounded-md text-sm';
+    }
+}
+
+function updateHistoryTable() {
+    const tbody = document.getElementById('camera-history-table');
+    
+    if (cameraImages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center py-8 text-gray-500">No images available</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = cameraImages.slice(0, 20).map((img, index) => `
+        <tr class="hover:bg-gray-50">
+            <td class="py-2 px-4">${formatToPhilippineTime(img.timestamp)}</td>
+            <td class="py-2 px-4">
+                <img src="data:image/jpeg;base64,${img.image_data}" 
+                     alt="Camera image" 
+                     class="w-20 h-15 object-cover rounded cursor-pointer hover:opacity-80 border border-gray-200 hover:border-indigo-400 transition-all"
+                     onclick="previewImage('${img.image_data}', '${img.timestamp}')">
+            </td>
+            <td class="py-2 px-4">
+                <button onclick="showImage(${index})" class="text-indigo-600 hover:text-indigo-800 text-sm">View</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function navigateImage(direction) {
+    if (direction === 'prev' && currentImageIndex > 0) {
+        currentImageIndex--;
+    } else if (direction === 'next' && currentImageIndex < cameraImages.length - 1) {
+        currentImageIndex++;
+    }
+    updateImageDisplay();
+}
+
+function showImage(index) {
+    currentImageIndex = index;
+    updateImageDisplay();
+}
+
+function previewImage(imageData, timestamp) {
+    document.getElementById('preview-image').src = `data:image/jpeg;base64,${imageData}`;
+    document.getElementById('preview-timestamp').textContent = formatToPhilippineTime(timestamp);
+    openModal('image-preview-modal');
+}
+
+function autoRefreshToggle() {
+    autoRefreshEnabled = !autoRefreshEnabled;
+    const btn = document.getElementById('auto-refresh-btn');
+    
+    if (autoRefreshEnabled) {
+        btn.textContent = 'Auto Refresh: ON';
+        btn.className = 'px-4 py-2 bg-green-600 text-white rounded-md text-sm hover:bg-green-700';
+        startAutoRefresh();
+    } else {
+        btn.textContent = 'Auto Refresh: OFF';
+        btn.className = 'px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700';
+        stopAutoRefresh();
+    }
+}
+
+function manualRefresh() {
+    loadCameraImages();
+}
+
+function setImageTimeRange(hours) {
+    // For now, we'll just reload the images (24h is default)
+    loadCameraImages();
+}
+
+function startAutoRefresh() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(() => {
+        if (document.getElementById('camera-device-select').value && autoRefreshEnabled) {
+            loadCameraImages();
+        }
+    }, 10000); // Refresh every 10 seconds
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+// Event listeners
+document.getElementById('camera-device-select').addEventListener('change', loadCameraImages);
+
+// Initialize
+loadCameraDevices();
+startAutoRefresh();
+
+// Cleanup
+window.addEventListener('beforeunload', () => {
+    stopAutoRefresh();
+});
+</script>
+{% endblock %}

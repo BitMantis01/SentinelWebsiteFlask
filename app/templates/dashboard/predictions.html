@@ -1,0 +1,1421 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Medical Predictions - Sentinel{% endblock %}
+
+{% block head %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js" integrity="sha384-7EyYLQZgWBi67fBtVxw60/OWl1kjsfrPFcaU0pp0nAh+i8FD068QogUvg85Ewy1k" crossorigin="anonymous"></script>
+<style>
+    .status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+
+    .status-indicator.connected { background: #10b981; }
+    .status-indicator.disconnected { background: #ef4444; }
+    .status-indicator.loading { background: #3b82f6; }
+
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+
+    .quality-excellent { background: #dcfce7; color: #166534; }
+    .quality-good { background: #fef3c7; color: #92400e; }
+    .quality-poor { background: #fecaca; color: #991b1b; }
+
+    .chart-container { position: relative; height: 300px; }
+    
+    .status-message {
+        position: fixed;
+        top: 2rem;
+        right: 2rem;
+        padding: 1rem 1.5rem;
+        border-radius: 0.75rem;
+        color: white;
+        font-weight: 600;
+        z-index: 1000;
+        transform: translateX(400px);
+        transition: transform 0.3s ease;
+    }
+
+    .status-message.show { transform: translateX(0); }
+    .status-message.success { background: #10b981; }
+    .status-message.error { background: #ef4444; }
+    .status-message.info { background: #3b82f6; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Main Header -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+        <div class="mb-4 lg:mb-0">
+            <div class="flex items-center space-x-3">
+                <span class="text-3xl">🔮</span>
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900">Advanced Medical Predictions</h1>
+                    <p class="text-gray-600">ARIMA Time Series Forecasting for Vital Signs</p>
+                </div>
+            </div>
+        </div>
+        <div class="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
+            <div id="connectionStatus" class="flex items-center space-x-2 px-3 py-2 rounded-full bg-red-100 text-red-800">
+                <div class="status-indicator disconnected"></div>
+                <span class="text-sm font-medium">Connecting...</span>
+            </div>
+            <button id="updatePredictions" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium transition-colors flex items-center space-x-2">
+                <span>📊</span>
+                <span>Update Predictions</span>
+            </button>
+            
+            <button id="testDevice" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium transition-colors flex items-center space-x-2">
+                <span>🔍</span>
+                <span>Test Device</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Device Selection and Status -->
+<div class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div class="mb-4 sm:mb-0">
+            <h2 class="text-lg font-semibold text-gray-800 mb-2">Device Connection</h2>
+            <div class="flex items-center space-x-4">
+                <label for="device-select" class="block text-sm font-medium text-gray-700">Select Footwear Monitor:</label>
+                <select id="device-select" class="w-full sm:w-64 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">Choose a device...</option>
+                    {% for device in current_user.footwear_monitors %}
+                        <option value="{{ device.device_id }}">{{ device.name }} ({{ device.baby_name }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <p class="text-sm text-gray-600 mt-1">Auto-connect and real-time prediction updates</p>
+        </div>
+        
+        <div class="flex items-center space-x-4">
+            <div id="deviceConnectionStatus" class="flex items-center space-x-2 px-3 py-2 rounded-full bg-yellow-100 text-yellow-800">
+                <div class="status-indicator"></div>
+                <span class="text-sm font-medium">No Device Selected</span>
+            </div>
+            
+            <div class="text-sm text-gray-600">
+                <div id="deviceDataCount">Data Points: --</div>
+                <div id="lastDataUpdate">Last Update: --</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device Status Message -->
+<div id="deviceStatusMessage" class="hidden bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-6">
+    <div class="flex">
+        <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+        </div>
+        <div class="ml-3">
+            <p class="text-sm font-medium" id="deviceStatusText">Please select a footwear monitor to begin predictions</p>
+        </div>
+    </div>
+</div>
+
+<!-- SpO2 Prediction Panel -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-start mb-4">
+        <div>
+            <h3 class="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                <span>🫁</span>
+                <span>Blood Oxygen (SpO2)</span>
+            </h3>
+            <p class="text-sm text-gray-600">Normal: 80-100%</p>
+        </div>
+        <div class="text-right text-xs text-gray-500">
+            <div id="spo2ModelInfo">
+                <div class="font-medium">ARIMA Model</div>
+                <div class="model-order">Not fitted</div>
+                <div class="model-aic">AIC: --</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="chart-container mb-4">
+        <canvas id="spo2Chart"></canvas>
+    </div>
+    
+    <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Predicted Range</div>
+            <div id="spo2Range" class="text-sm font-semibold text-gray-900">-- to --%</div>
+        </div>
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Trend Analysis</div>
+            <div id="spo2Trend" class="text-sm font-semibold text-gray-900">--</div>
+        </div>
+    </div>
+    
+    <div id="spo2Accuracy" class="bg-gray-50 p-3 rounded">
+        <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Error (MAE): The average absolute difference between predicted and actual values. It measures the average magnitude of the errors in a set of predictions, without considering their direction. Lower is better.">
+                <div id="spo2MAE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">MAE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Root Mean Square Error (RMSE): The square root of the average of squared differences between prediction and actual observation. It's more sensitive to large errors than MAE. Lower is better.">
+                <div id="spo2RMSE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">RMSE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Percentage Error (MAPE): The average of absolute percentage errors. Expresses error as a percentage of the actual value, which is often intuitive. Lower is better. A MAPE of 3.35% means the forecast is, on average, off by 3.35%.">
+                <div id="spo2MAPE" class="text-lg font-bold text-gray-900">--%</div>
+                <div class="text-xs text-gray-600">MAPE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="R-squared (R²): Represents the proportion of the variance for a dependent variable that's explained by an independent variable. It provides a measure of how well observed outcomes are replicated by the model. Higher is better (closer to 1).">
+                <div id="spo2R2" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">R²</div>
+            </div>
+        </div>
+        
+        <div class="mt-3 text-center">
+            <div class="text-xs text-gray-600 uppercase font-medium">Model Statistics</div>
+            <div id="spo2ModelStats" class="text-sm text-gray-800 mt-1">
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Training Points:</span>
+                    <span class="font-medium">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Heart Rate Prediction Panel -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-start mb-4">
+        <div>
+            <h3 class="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                <span>❤️</span>
+                <span>Heart Rate (BPM)</span>
+            </h3>
+            <p class="text-sm text-gray-600">Normal: 60-200 bpm</p>
+        </div>
+        <div class="text-right text-xs text-gray-500">
+            <div id="heart_rateModelInfo">
+                <div class="font-medium">ARIMA Model</div>
+                <div class="model-order">Not fitted</div>
+                <div class="model-aic">AIC: --</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="chart-container mb-4">
+        <canvas id="heart_rateChart"></canvas>
+    </div>
+    
+    <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Predicted Range</div>
+            <div id="heart_rateRange" class="text-sm font-semibold text-gray-900">-- to -- bpm</div>
+        </div>
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Trend Analysis</div>
+            <div id="heart_rateTrend" class="text-sm font-semibold text-gray-900">--</div>
+        </div>
+    </div>
+    
+    <div id="heart_rateAccuracy" class="bg-gray-50 p-3 rounded">
+        <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Error (MAE): The average absolute difference between predicted and actual values. It measures the average magnitude of the errors in a set of predictions, without considering their direction. Lower is better.">
+                <div id="heart_rateMAE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">MAE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Root Mean Square Error (RMSE): The square root of the average of squared differences between prediction and actual observation. It's more sensitive to large errors than MAE. Lower is better.">
+                <div id="heart_rateRMSE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">RMSE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Percentage Error (MAPE): The average of absolute percentage errors. Expresses error as a percentage of the actual value, which is often intuitive. Lower is better. A MAPE of 3.35% means the forecast is, on average, off by 3.35%.">
+                <div id="heart_rateMAPE" class="text-lg font-bold text-gray-900">--%</div>
+                <div class="text-xs text-gray-600">MAPE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="R-squared (R²): Represents the proportion of the variance for a dependent variable that's explained by an independent variable. It provides a measure of how well observed outcomes are replicated by the model. Higher is better (closer to 1).">
+                <div id="heart_rateR2" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">R²</div>
+            </div>
+        </div>
+        
+        <div class="mt-3 text-center">
+            <div class="text-xs text-gray-600 uppercase font-medium">Model Statistics</div>
+            <div id="heart_rateModelStats" class="text-sm text-gray-800 mt-1">
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Training Points:</span>
+                    <span class="font-medium">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Temperature Prediction Panel -->
+<div class="bg-white p-6 rounded-lg shadow-md mb-6">
+    <div class="flex justify-between items-start mb-4">
+        <div>
+            <h3 class="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+                <span>🌡️</span>
+                <span>Body Temperature</span>
+            </h3>
+            <p class="text-sm text-gray-600">Normal: 32-41°C</p>
+        </div>
+        <div class="text-right text-xs text-gray-500">
+            <div id="temperatureModelInfo">
+                <div class="font-medium">ARIMA Model</div>
+                <div class="model-order">Not fitted</div>
+                <div class="model-aic">AIC: --</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="chart-container mb-4">
+        <canvas id="temperatureChart"></canvas>
+    </div>
+    
+    <div class="grid grid-cols-2 gap-4 mb-4">
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Predicted Range</div>
+            <div id="temperatureRange" class="text-sm font-semibold text-gray-900">-- to --°C</div>
+        </div>
+        <div class="bg-gray-50 p-3 rounded">
+            <div class="text-xs text-gray-600 uppercase font-medium">Trend Analysis</div>
+            <div id="temperatureTrend" class="text-sm font-semibold text-gray-900">--</div>
+        </div>
+    </div>
+    
+    <div id="temperatureAccuracy" class="bg-gray-50 p-3 rounded">
+        <div class="grid grid-cols-4 gap-2 text-center">
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Error (MAE): The average absolute difference between predicted and actual values. It measures the average magnitude of the errors in a set of predictions, without considering their direction. Lower is better.">
+                <div id="temperatureMAE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">MAE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Root Mean Square Error (RMSE): The square root of the average of squared differences between prediction and actual observation. It's more sensitive to large errors than MAE. Lower is better.">
+                <div id="temperatureRMSE" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">RMSE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="Mean Absolute Percentage Error (MAPE): The average of absolute percentage errors. Expresses error as a percentage of the actual value, which is often intuitive. Lower is better. A MAPE of 3.35% means the forecast is, on average, off by 3.35%.">
+                <div id="temperatureMAPE" class="text-lg font-bold text-gray-900">--%</div>
+                <div class="text-xs text-gray-600">MAPE</div>
+            </div>
+            <div class="bg-white p-2 rounded border" title="R-squared (R²): Represents the proportion of the variance for a dependent variable that's explained by an independent variable. It provides a measure of how well observed outcomes are replicated by the model. Higher is better (closer to 1).">
+                <div id="temperatureR2" class="text-lg font-bold text-gray-900">--</div>
+                <div class="text-xs text-gray-600">R²</div>
+            </div>
+        </div>
+        
+        <div class="mt-3 text-center">
+            <div class="text-xs text-gray-600 uppercase font-medium">Model Statistics</div>
+            <div id="temperatureModelStats" class="text-sm text-gray-800 mt-1">
+                <div class="flex justify-between">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Analytics Section -->
+<div class="bg-white p-6 rounded-lg shadow-md">
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6">
+        <h2 class="text-xl font-bold text-gray-900 mb-4 lg:mb-0">📈 Prediction Analytics</h2>
+        <div class="flex space-x-2">
+            <button class="tab-btn bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium" data-tab="recent-predictions">Recent Predictions</button>
+            <button class="tab-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300" data-tab="accuracy-trends">Accuracy Trends</button>
+            <button class="tab-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300" data-tab="model-performance">Model Performance</button>
+        </div>
+    </div>
+
+    <!-- Recent Predictions Tab -->
+    <div id="recent-predictions" class="analytics-panel">
+        <div class="mb-4">
+            <h4 class="text-lg font-semibold text-gray-900 mb-4">Last 10 Prediction Sessions</h4>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Patient</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SpO2 Forecast</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Heart Rate Forecast</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Temperature Forecast</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ARIMA Models</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentPredictionsTable" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="7" class="px-6 py-4 text-center text-gray-500 italic">No prediction sessions recorded</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Accuracy Trends Tab -->
+    <div id="accuracy-trends" class="analytics-panel hidden">
+        <div class="mb-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-4 mb-4">
+                <label for="vitalSignFilter" class="text-sm font-medium text-gray-700 mb-2 sm:mb-0">Filter by Vital Sign:</label>
+                <select id="vitalSignFilter" class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="all">All Vital Signs</option>
+                    <option value="spo2">SpO2 Only</option>
+                    <option value="heart_rate">Heart Rate Only</option>
+                    <option value="temperature">Temperature Only</option>
+                </select>
+                <button id="refreshAccuracy" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium">
+                    🔄 Refresh
+                </button>
+            </div>
+            <h4 class="text-lg font-semibold text-gray-900 mb-4">Accuracy Metrics History (Last 30 Records)</h4>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vital Sign</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MAE</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RMSE</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MAPE (%)</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">R² Score</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accuracyTrendsTable" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="7" class="px-6 py-4 text-center text-gray-500 italic">No accuracy data available</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Model Performance Tab -->
+    <div id="model-performance" class="analytics-panel hidden">
+        <div class="mb-4">
+            <h4 class="text-lg font-semibold text-gray-900 mb-4">ARIMA Model Performance Overview</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h5 class="font-semibold text-gray-900 mb-2">SpO2 Models</h5>
+                    <div id="spo2ModelStats" class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Best Model:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Avg Accuracy:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h5 class="font-semibold text-gray-900 mb-2">Heart Rate Models</h5>
+                    <div id="heart_rateModelStats" class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Best Model:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Avg Accuracy:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h5 class="font-semibold text-gray-900 mb-2">Temperature Models</h5>
+                    <div id="temperatureModelStats" class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Best Model:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Avg Accuracy:</span>
+                            <span class="font-medium">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Status Message Container -->
+<div id="statusMessage" class="status-message"></div>
+
+<script>
+// ==================== GLOBAL VARIABLES ====================
+let socket;
+let charts = {};
+let connectionStatus = 'disconnected';
+let currentPredictions = {};
+let predictionHistory = [];
+let accuracyTrends = [];
+let currentDeviceId = null;
+let deviceConnectionStatus = 'none';
+let autoRefreshInterval;
+let deviceDataCheckInterval;
+
+// ==================== DEVICE MANAGEMENT ====================
+function updateDeviceConnectionStatus(status, message = '') {
+    deviceConnectionStatus = status;
+    const statusElement = document.getElementById('deviceConnectionStatus');
+    const indicator = statusElement.querySelector('.status-indicator');
+    
+    // Update classes with Tailwind
+    if (status === 'connected') {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-green-100 text-green-800';
+        indicator.className = 'status-indicator connected';
+        statusElement.querySelector('span').textContent = message || 'Device Connected';
+    } else if (status === 'checking') {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-blue-100 text-blue-800';
+        indicator.className = 'status-indicator loading';
+        statusElement.querySelector('span').textContent = 'Checking Device...';
+    } else if (status === 'insufficient_data') {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-orange-100 text-orange-800';
+        indicator.className = 'status-indicator loading';
+        statusElement.querySelector('span').textContent = 'Insufficient Data';
+    } else {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-yellow-100 text-yellow-800';
+        indicator.className = 'status-indicator disconnected';
+        statusElement.querySelector('span').textContent = 'No Device Selected';
+    }
+}
+
+async function checkDeviceData(deviceId) {
+    console.log('🔍 Checking device data for:', deviceId);
+    try {
+        const response = await fetch(`/api/device_status/${deviceId}`);
+        console.log('📡 Device status response:', response.status);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        console.log('📊 Device status data:', data);
+        
+        // Update data count display
+        document.getElementById('deviceDataCount').textContent = `Data Points: ${data.data_count}`;
+        
+        if (data.latest_data) {
+            const lastUpdate = data.latest_data.timestamp;
+            document.getElementById('lastDataUpdate').textContent = `Last Update: ${formatTimestamp(lastUpdate)}`;
+        } else {
+            document.getElementById('lastDataUpdate').textContent = 'Last Update: Never';
+        }
+        
+        if (data.prediction_ready) {
+            console.log('✅ Device ready for predictions');
+            updateDeviceConnectionStatus('connected', `${data.baby_name} - Ready for Predictions`);
+            hideDeviceStatusMessage();
+            return true;
+        } else if (data.data_count > 0) {
+            console.log('⚠️ Device has data but insufficient for predictions');
+            updateDeviceConnectionStatus('insufficient_data', `${data.baby_name} - Need ${data.required_minimum - data.data_count} more points`);
+            showDeviceStatusMessage(`Device "${data.device_name}" needs ${data.required_minimum - data.data_count} more data points for medical-grade predictions`, 'warning');
+            return false;
+        } else {
+            console.log('❌ Device has no data');
+            updateDeviceConnectionStatus('insufficient_data', 'No Data Available');
+            showDeviceStatusMessage('No data available from selected device. Please ensure the device is active and transmitting', 'warning');
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Device data check failed:', error);
+        updateDeviceConnectionStatus('none', 'Connection Error');
+        showDeviceStatusMessage('Failed to connect to device. Please check device connectivity', 'error');
+        return false;
+    }
+}
+
+function showDeviceStatusMessage(message, type = 'info') {
+    const messageElement = document.getElementById('deviceStatusMessage');
+    const textElement = document.getElementById('deviceStatusText');
+    
+    textElement.textContent = message;
+    
+    // Update styling based on type
+    if (type === 'error') {
+        messageElement.className = 'bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6';
+    } else if (type === 'warning') {
+        messageElement.className = 'bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-6';
+    } else if (type === 'success') {
+        messageElement.className = 'bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6';
+    } else {
+        messageElement.className = 'bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-6';
+    }
+    
+    messageElement.classList.remove('hidden');
+}
+
+function hideDeviceStatusMessage() {
+    document.getElementById('deviceStatusMessage').classList.add('hidden');
+}
+
+function formatTimestamp(timestamp) {
+    // If timestamp is a string from backend, it's UTC but may be naive. Add 'Z'.
+    // If it's a number from chart.js, it's already a UTC-based epoch milliseconds.
+    const date = typeof timestamp === 'string' ? new Date(timestamp + 'Z') : new Date(timestamp);
+    return date.toLocaleString('en-PH', {
+        timeZone: 'Asia/Manila',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+async function selectDevice(deviceId) {
+    console.log('🔧 selectDevice called with:', deviceId);
+    currentDeviceId = deviceId;
+    
+    if (!deviceId) {
+        console.log('❌ No device selected');
+        updateDeviceConnectionStatus('none');
+        showDeviceStatusMessage('Please select a footwear monitor to begin predictions', 'info');
+        clearCharts();
+        clearDeviceData();
+        return;
+    }
+    
+    console.log('✅ Device selected, checking data availability...');
+    updateDeviceConnectionStatus('checking');
+    
+    // Check if device has sufficient data
+    const hasEnoughData = await checkDeviceData(deviceId);
+    console.log('📊 Device data check result:', hasEnoughData);
+    
+    if (hasEnoughData) {
+        console.log('🚀 Device ready, triggering initial prediction...');
+        // Automatically trigger initial prediction
+        setTimeout(() => {
+            updatePredictions();
+        }, 1000);
+        
+        // Set up auto-refresh for device data
+        if (deviceDataCheckInterval) {
+            clearInterval(deviceDataCheckInterval);
+        }
+        deviceDataCheckInterval = setInterval(() => {
+            checkDeviceData(deviceId);
+        }, 10000); // Check every 10 seconds
+        
+        console.log('⏰ Auto-refresh interval set for device data');
+    } else {
+        console.log('⚠️ Device not ready for predictions');
+    }
+}
+
+function clearDeviceData() {
+    document.getElementById('deviceDataCount').textContent = 'Data Points: --';
+    document.getElementById('lastDataUpdate').textContent = 'Last Update: --';
+    
+    if (deviceDataCheckInterval) {
+        clearInterval(deviceDataCheckInterval);
+        deviceDataCheckInterval = null;
+    }
+}
+
+function clearCharts() {
+    Object.values(charts).forEach(chart => {
+        if (chart) {
+            chart.data.labels = [];
+            chart.data.datasets.forEach(dataset => {
+                dataset.data = [];
+            });
+            chart.update();
+        }
+    });
+}
+
+// ==================== WEBSOCKET CONNECTION ====================
+function initializeWebSocket() {
+    // Check if Socket.IO is available
+    if (typeof io === 'undefined') {
+        console.warn('⚠️ Socket.IO not available. Running in polling mode only.');
+        updateConnectionStatus('connected'); // Still allow the app to work
+        return;
+    }
+    
+    try {
+        socket = io();
+        
+        socket.on('connect', function() {
+            console.log('📡 Connected to prediction server');
+            updateConnectionStatus('connected');
+            socket.emit('join_prediction_room', {});
+            showStatusMessage('Connected to real-time prediction system', 'success');
+        });
+        
+        socket.on('disconnect', function() {
+            console.log('📡 Disconnected from prediction server');
+            updateConnectionStatus('disconnected');
+            showStatusMessage('Disconnected from prediction system', 'error');
+        });
+        
+        socket.on('joined_prediction_room', function(data) {
+            console.log('Joined prediction room:', data.room);
+        });
+        
+        socket.on('auto_prediction_trigger', function(data) {
+            console.log('Auto prediction triggered:', data);
+            showStatusMessage('New sensor data received - updating predictions...', 'info');
+            
+            // Automatically trigger prediction update
+            setTimeout(() => {
+                updatePredictions();
+            }, 1000);
+        });
+        
+        socket.on('prediction_update', function(data) {
+            console.log('Received prediction update:', data);
+            handlePredictionUpdate(data);
+            showStatusMessage('Predictions updated successfully', 'success');
+        });
+        
+        socket.on('new_data', function(data) {
+            if (data.data_type === 'footwear') {
+                console.log('New footwear data received:', data);
+                
+                // Check if it's from our selected device
+                if (data.device_id === currentDeviceId) {
+                    // Update device data check
+                    setTimeout(() => {
+                        checkDeviceData(currentDeviceId);
+                    }, 500);
+                    
+                    showStatusMessage('New sensor data received', 'info');
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ WebSocket initialization failed:', error);
+        updateConnectionStatus('connected'); // Still allow the app to work
+    }
+}
+
+function updateConnectionStatus(status) {
+    connectionStatus = status;
+    const statusElement = document.getElementById('connectionStatus');
+    const indicator = statusElement.querySelector('.status-indicator');
+    
+    // Update classes with Tailwind
+    if (status === 'connected') {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-green-100 text-green-800';
+        indicator.className = 'status-indicator connected';
+        statusElement.querySelector('span').textContent = 'Real-time Connected';
+    } else if (status === 'loading') {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-blue-100 text-blue-800';
+        indicator.className = 'status-indicator loading';
+        statusElement.querySelector('span').textContent = 'Updating Predictions...';
+    } else {
+        statusElement.className = 'flex items-center space-x-2 px-3 py-2 rounded-full bg-red-100 text-red-800';
+        indicator.className = 'status-indicator disconnected';
+        statusElement.querySelector('span').textContent = 'Disconnected';
+    }
+}
+
+// ==================== CHART INITIALIZATION ====================
+function initializeCharts() {
+    const vitalSigns = ['spo2', 'heart_rate', 'temperature'];
+    
+    vitalSigns.forEach(vital => {
+        const ctx = document.getElementById(`${vital}Chart`).getContext('2d');
+        charts[vital] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Historical Data',
+                        data: [],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Predictions',
+                        data: [],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        borderWidth: 3,
+                        borderDash: [8, 4],
+                        fill: false,
+                        tension: 0.2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            title: function(tooltipItems) {
+                                return formatTimestamp(tooltipItems[0].parsed.x);
+                            },
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                label += context.parsed.y.toFixed(2);
+                                
+                                // Add units
+                                if (vital === 'spo2') label += '%';
+                                else if (vital === 'heart_rate') label += ' BPM';
+                                else if (vital === 'temperature') label += '°C';
+                                
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            tooltipFormat: 'MMM dd, HH:mm:ss',
+                            displayFormats: {
+                                minute: 'HH:mm',
+                                hour: 'HH:mm'
+                            }
+                        },
+                        ticks: {
+                            callback: function(value, index, ticks) {
+                                // The 'value' is a timestamp. Format it to GMT+8.
+                                return new Date(value).toLocaleString('en-PH', {
+                                    timeZone: 'Asia/Manila',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                });
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        title: {
+                            display: true,
+                            text: getVitalSignUnit(vital)
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
+            }
+        });
+    });
+}
+
+function getVitalSignUnit(vital) {
+    const units = {
+        'spo2': 'SpO2 (%)',
+        'heart_rate': 'Heart Rate (BPM)',
+        'temperature': 'Temperature (°C)'
+    };
+    return units[vital] || '';
+}
+
+// ==================== PREDICTION UPDATES ====================
+async function updatePredictions() {
+    if (!currentDeviceId) {
+        showStatusMessage('Please select a device first', 'error');
+        return;
+    }
+    
+    console.log('🔄 Starting prediction update for device:', currentDeviceId);
+    updateConnectionStatus('loading');
+    
+    try {
+        const requestBody = {
+            device_id: currentDeviceId,
+            steps: 20,
+            confidence_level: 95
+        };
+        
+        console.log('📤 Sending prediction request:', requestBody);
+        
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        
+        const response = await fetch('/api/predict_all', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        console.log('📥 Response status:', response.status);
+        console.log('📥 Response headers:', response.headers);
+        
+        // Get response text first for debugging
+        const responseText = await response.text();
+        console.log('📥 Response body:', responseText);
+        
+        if (!response.ok) {
+            // Try to parse as JSON for error details
+            let errorData;
+            try {
+                errorData = JSON.parse(responseText);
+            } catch (e) {
+                errorData = { error: 'Unknown error', details: responseText };
+            }
+            
+            console.error('❌ HTTP error:', response.status, errorData);
+            throw new Error(`${errorData.error || 'HTTP error'}: ${errorData.details || response.statusText}`);
+        }
+        
+        // Parse successful response
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error('❌ Failed to parse response JSON:', e);
+            throw new Error('Invalid JSON response from server');
+        }
+        
+        console.log('✅ Parsed response data:', data);
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        handlePredictionUpdate(data);
+        updateConnectionStatus('connected');
+        showStatusMessage('Predictions updated successfully', 'success');
+        
+    } catch (error) {
+        console.error('❌ Prediction update failed:', error);
+        showStatusMessage(`Prediction update failed: ${error.message}`, 'error');
+        updateConnectionStatus('connected'); // Return to connected state
+    }
+}
+
+function handlePredictionUpdate(data) {
+    console.log('🔄 Handling prediction update:', data);
+    
+    try {
+        currentPredictions = data.predictions;
+        
+        // Update charts for each vital sign
+        Object.keys(currentPredictions).forEach(vitalSign => {
+            console.log(`📊 Processing ${vitalSign} predictions`);
+            const prediction = currentPredictions[vitalSign];
+            
+            if (prediction.error) {
+                console.error(`${vitalSign} prediction error:`, prediction.error);
+                return;
+            }
+            
+            try {
+                updateChart(vitalSign, prediction);
+                console.log(`✅ Chart updated for ${vitalSign}`);
+            } catch (error) {
+                console.error(`❌ Chart update failed for ${vitalSign}:`, error);
+            }
+            
+            try {
+                updateAccuracyMetrics(vitalSign, prediction);
+                console.log(`✅ Accuracy metrics updated for ${vitalSign}`);
+            } catch (error) {
+                console.error(`❌ Accuracy metrics update failed for ${vitalSign}:`, error);
+            }
+            
+            try {
+                updatePredictionSummary(vitalSign, prediction);
+                console.log(`✅ Prediction summary updated for ${vitalSign}`);
+            } catch (error) {
+                console.error(`❌ Prediction summary update failed for ${vitalSign}:`, error);
+            }
+        });
+        
+        // Refresh history and trends
+        refreshPredictionHistory();
+        refreshAccuracyTrends();
+        
+        console.log('✅ Prediction update completed successfully');
+    } catch (error) {
+        console.error('❌ Prediction update failed:', error);
+        showStatusMessage('Failed to update prediction display', 'error');
+    }
+}
+
+function updateChart(vitalSign, prediction) {
+    const chart = charts[vitalSign];
+    if (!chart) return;
+    
+    // Prepare historical data with proper date conversion
+    const historicalLabels = prediction.historical.map(h => new Date(h.timestamp + 'Z'));
+    const historicalValues = prediction.historical.map(h => h.value);
+    
+    // Prepare prediction data with proper date conversion
+    const predictionLabels = prediction.predictions.map(p => new Date(p.timestamp + 'Z'));
+    const predictionValues = prediction.predictions.map(p => p.value);
+    const upperBounds = prediction.predictions.map(p => p.upper_bound);
+    const lowerBounds = prediction.predictions.map(p => p.lower_bound);
+    
+    // Combine labels for smoother timeline
+    const allLabels = [...historicalLabels, ...predictionLabels];
+    
+    // Update chart data with confidence intervals
+    chart.data.labels = allLabels;
+    
+    // Ensure we have the right number of datasets
+    while (chart.data.datasets.length < 4) {
+        chart.data.datasets.push({});
+    }
+    
+    // Historical data (solid line)
+    chart.data.datasets[0] = {
+        label: 'Historical Data',
+        data: [...historicalValues, ...Array(predictionLabels.length).fill(null)],
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 2
+    };
+    
+    // Lower confidence bound (for fill area) - this goes first for proper fill layering
+    chart.data.datasets[1] = {
+        label: 'Lower Bound (95% CI)',
+        data: [...Array(historicalLabels.length).fill(null), ...lowerBounds],
+        borderColor: 'rgba(239, 68, 68, 0.6)',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [4, 4],
+        fill: false,
+        tension: 0.2,
+        pointRadius: 0,
+        pointHoverRadius: 4
+    };
+    
+    // Upper confidence bound (with fill to lower bound)
+    chart.data.datasets[2] = {
+        label: 'Upper Bound (95% CI)',
+        data: [...Array(historicalLabels.length).fill(null), ...upperBounds],
+        borderColor: 'rgba(239, 68, 68, 0.6)',
+        backgroundColor: 'rgba(239, 68, 68, 0.15)', // Light red fill
+        borderWidth: 2,
+        borderDash: [4, 4],
+        fill: '-1', // Fill to the previous dataset (lower bound)
+        tension: 0.2,
+        pointRadius: 0,
+        pointHoverRadius: 4
+    };
+    
+    // Prediction data (dashed line) - on top for visibility
+    chart.data.datasets[3] = {
+        label: 'Predictions',
+        data: [...Array(historicalLabels.length).fill(null), ...predictionValues],
+        borderColor: '#ef4444',
+        backgroundColor: 'transparent',
+        borderWidth: 4,
+        borderDash: [8, 4],
+        fill: false,
+        tension: 0.2,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#ef4444',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2
+    };
+    
+    chart.update();
+    
+    // Add model info to help explain the prediction type
+    console.log(`${vitalSign} prediction using ${prediction.model_info?.type || 'Unknown'} model`);
+    console.log(`Model order: ${prediction.model_info?.order || 'N/A'}, AIC: ${prediction.model_info?.aic?.toFixed(2) || 'N/A'}`);
+}
+
+function updateAccuracyMetrics(vitalSign, prediction) {
+    if (!prediction.accuracy) return;
+    
+    const accuracy = prediction.accuracy;
+    const modelInfo = prediction.model_info;
+    const dataQuality = prediction.data_quality;
+    
+    // Update model information - with null checks
+    const modelInfoElement = document.getElementById(`${vitalSign}ModelInfo`);
+    if (modelInfoElement) {
+        const fontMediumElement = modelInfoElement.querySelector('.font-medium');
+        if (fontMediumElement) {
+            fontMediumElement.textContent = modelInfo.type || 'Unknown';
+        }
+        const modelOrderElement = modelInfoElement.querySelector('.model-order');
+        if (modelOrderElement) {
+            modelOrderElement.textContent = `Order: ${modelInfo.order || 'N/A'}`;
+        }
+        const modelAicElement = modelInfoElement.querySelector('.model-aic');
+        if (modelAicElement) {
+            modelAicElement.textContent = `AIC: ${modelInfo.aic ? modelInfo.aic.toFixed(2) : '--'}`;
+        }
+    }
+
+    // Update model stats with data quality information
+    const modelStatsElement = document.getElementById(`${vitalSign}ModelStats`);
+    if (modelStatsElement && modelInfo) {
+        let statsHTML = `
+            <div class="flex justify-between">
+                <span class="text-gray-600">Training Points:</span>
+                <span class="font-medium">${modelInfo.training_points || 0}</span>
+            </div>`;
+        
+        if (dataQuality) {
+            const validationRate = (dataQuality.validation_rate * 100).toFixed(1);
+            statsHTML += `
+            <div class="flex justify-between">
+                <span class="text-gray-600">Total Data Points:</span>
+                <span class="font-medium">${dataQuality.total_points || 0}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Valid Data Points:</span>
+                <span class="font-medium text-green-600">${dataQuality.valid_points || 0}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Data Quality:</span>
+                <span class="font-medium ${validationRate >= 80 ? 'text-green-600' : validationRate >= 60 ? 'text-yellow-600' : 'text-red-600'}">${validationRate}%</span>
+            </div>`;
+        }
+        
+        if (modelInfo.valid_data_ratio !== undefined) {
+            const validDataRate = (modelInfo.valid_data_ratio * 100).toFixed(1);
+            statsHTML += `
+            <div class="flex justify-between">
+                <span class="text-gray-600">Valid Data Rate:</span>
+                <span class="font-medium ${validDataRate >= 80 ? 'text-green-600' : validDataRate >= 60 ? 'text-yellow-600' : 'text-red-600'}">${validDataRate}%</span>
+            </div>`;
+        }
+        
+        modelStatsElement.innerHTML = statsHTML;
+    }
+    
+    // Update accuracy metrics - with null checks
+    const maeElement = document.getElementById(`${vitalSign}MAE`);
+    if (maeElement) {
+        maeElement.textContent = accuracy.mae ? accuracy.mae.toFixed(3) : '--';
+    }
+    
+    const rmseElement = document.getElementById(`${vitalSign}RMSE`);
+    if (rmseElement) {
+        rmseElement.textContent = accuracy.rmse ? accuracy.rmse.toFixed(3) : '--';
+    }
+    
+    const mapeElement = document.getElementById(`${vitalSign}MAPE`);
+    if (mapeElement) {
+        mapeElement.textContent = accuracy.mape ? accuracy.mape.toFixed(2) + '%' : '--';
+    }
+    
+    const r2Element = document.getElementById(`${vitalSign}R2`);
+    if (r2Element) {
+        r2Element.textContent = accuracy.r2 ? accuracy.r2.toFixed(3) : '--';
+    }
+}
+
+function updatePredictionSummary(vitalSign, prediction) {
+    if (!prediction.predictions || prediction.predictions.length === 0) return;
+    
+    const values = prediction.predictions.map(p => p.value);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    
+    // Update range - with null check
+    const rangeElement = document.getElementById(`${vitalSign}Range`);
+    if (rangeElement) {
+        let unit = '';
+        if (vitalSign === 'spo2') unit = '%';
+        else if (vitalSign === 'heart_rate') unit = ' BPM';
+        else if (vitalSign === 'temperature') unit = '°C';
+        
+        rangeElement.textContent = `${minValue.toFixed(1)} to ${maxValue.toFixed(1)}${unit}`;
+    }
+    
+    // Calculate and update trend - with null check
+    const trendElement = document.getElementById(`${vitalSign}Trend`);
+    if (trendElement && values.length > 1) {
+        const firstValue = values[0];
+        const lastValue = values[values.length - 1];
+        const change = lastValue - firstValue;
+        const changePercent = ((change / firstValue) * 100).toFixed(1);
+        
+        let trendText = '';
+        if (Math.abs(change) < 0.1) {
+            trendText = 'Stable';
+        } else if (change > 0) {
+            trendText = `↗ Increasing (+${changePercent}%)`;
+        } else {
+            trendText = `↘ Decreasing (${changePercent}%)`;
+        }
+        
+        trendElement.textContent = trendText;
+    }
+}
+
+// ==================== HISTORY AND ANALYTICS ====================
+async function refreshPredictionHistory() {
+    try {
+        const response = await fetch('/api/prediction_history?limit=10');
+        const data = await response.json();
+        
+        if (data.history) {
+            predictionHistory = data.history;
+            updateHistoryTable();
+        }
+    } catch (error) {
+        console.error('Failed to fetch prediction history:', error);
+    }
+}
+
+async function refreshAccuracyTrends() {
+    try {
+        const filter = document.getElementById('vitalSignFilter')?.value || 'all';
+        const response = await fetch(`/api/accuracy_trends?vital_sign=${filter}&limit=30`);
+        const data = await response.json();
+        
+        if (data.trends) {
+            accuracyTrends = data.trends;
+            updateAccuracyTable();
+        }
+    } catch (error) {
+        console.error('Failed to fetch accuracy trends:', error);
+    }
+}
+
+function updateHistoryTable() {
+    const tbody = document.getElementById('recentPredictionsTable');
+    
+    if (predictionHistory.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500 italic">No prediction sessions recorded</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = predictionHistory.map(session => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${formatTimestamp(session.timestamp)}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${session.baby_name}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${session.predicted_ranges.spo2.min ? 
+                `${session.predicted_ranges.spo2.min.toFixed(1)}-${session.predicted_ranges.spo2.max.toFixed(1)}%` : 
+                'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${session.predicted_ranges.heart_rate.min ? 
+                `${session.predicted_ranges.heart_rate.min.toFixed(0)}-${session.predicted_ranges.heart_rate.max.toFixed(0)} BPM` : 
+                'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${session.predicted_ranges.temperature.min ? 
+                `${session.predicted_ranges.temperature.min.toFixed(1)}-${session.predicted_ranges.temperature.max.toFixed(1)}°C` : 
+                'N/A'}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                <div>SpO2: ${session.model_orders.spo2 || 'N/A'}</div>
+                <div>HR: ${session.model_orders.heart_rate || 'N/A'}</div>
+                <div>Temp: ${session.model_orders.temperature || 'N/A'}</div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full quality-${session.overall_quality}">
+                    ${session.overall_quality}
+                </span>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateAccuracyTable() {
+    const tbody = document.getElementById('accuracyTrendsTable');
+    
+    if (accuracyTrends.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500 italic">No accuracy data available</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = accuracyTrends.map(trend => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${formatTimestamp(trend.timestamp)}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${trend.vital_sign.toUpperCase()}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${trend.mae.toFixed(3)}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${trend.rmse.toFixed(3)}</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${trend.mape.toFixed(2)}%</td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${trend.r2_score.toFixed(3)}</td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full quality-${trend.quality_grade}">
+                    ${trend.quality_grade}
+                </span>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// ==================== EVENT HANDLERS ====================
+function showStatusMessage(message, type) {
+    console.log(`📢 Status message: ${message} (${type})`);
+    
+    const statusMessage = document.getElementById('statusMessage');
+    if (!statusMessage) {
+        console.warn('Status message element not found');
+        return;
+    }
+    
+    statusMessage.textContent = message;
+    statusMessage.className = `status-message ${type} show`;
+    
+    setTimeout(() => {
+        statusMessage.classList.remove('show');
+    }, 4000);
+}
+
+function viewSessionDetails(sessionId) {
+    showStatusMessage(`Viewing session ${sessionId} details`, 'info');
+    // Could open a modal or navigate to detailed view
+}
+
+// ==================== INITIALIZATION ====================
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 Predictions page initializing...');
+    
+    // Initialize WebSocket connection
+    initializeWebSocket();
+    
+    // Initialize charts
+    initializeCharts();
+    
+    // Set up device selection handler
+    const deviceSelect = document.getElementById('device-select');
+    console.log('📱 Found device select element:', !!deviceSelect);
+    console.log('📱 Available devices:', deviceSelect ? deviceSelect.options.length - 1 : 0);
+    
+    deviceSelect.addEventListener('change', function() {
+        const selectedDeviceId = this.value;
+        console.log('🔄 Device selection changed to:', selectedDeviceId);
+        console.log('🔄 Event triggered successfully');
+        
+        // Add immediate visual feedback
+        showStatusMessage(`Device selected: ${selectedDeviceId || 'None'}`, 'info');
+        
+        selectDevice(selectedDeviceId);
+    });
+    
+    // Auto-select first device if available
+    if (deviceSelect.options.length > 1) {
+        deviceSelect.selectedIndex = 1;
+        const firstDeviceId = deviceSelect.value;
+        console.log('🎯 Auto-selecting first device:', firstDeviceId);
+        
+        // Test the API endpoint first
+        console.log('🧪 Testing API endpoint before auto-selection...');
+        fetch(`/api/device_status/${firstDeviceId}`)
+            .then(response => {
+                console.log('🧪 API test response status:', response.status);
+                return response.text();
+            })
+            .then(text => {
+                console.log('🧪 API test response body:', text);
+                // Now proceed with normal selection
+                selectDevice(firstDeviceId);
+            })
+            .catch(error => {
+                console.error('🧪 API test failed:', error);
+                showStatusMessage('API endpoint test failed. Check console for details.', 'error');
+            });
+    } else {
+        console.log('⚠️ No devices available');
+        showDeviceStatusMessage('No footwear monitors found. Please link a device in your profile settings.', 'warning');
+    }
+    
+    // Set up event listeners
+    document.getElementById('updatePredictions').addEventListener('click', () => {
+        console.log('🔄 Manual prediction update triggered');
+        updatePredictions();
+    });
+    
+    // Test device button
+    document.getElementById('testDevice').addEventListener('click', () => {
+        console.log('🧪 Test device button clicked');
+        const deviceSelect = document.getElementById('device-select');
+        const selectedDeviceId = deviceSelect.value;
+        console.log('🧪 Currently selected device:', selectedDeviceId);
+        
+        if (selectedDeviceId) {
+            showStatusMessage('Testing device connection...', 'info');
+            checkDeviceData(selectedDeviceId).then(result => {
+                console.log('🧪 Test result:', result);
+                showStatusMessage(`Test completed. Result: ${result ? 'SUCCESS' : 'FAILED'}`, result ? 'success' : 'error');
+            });
+        } else {
+            showStatusMessage('Please select a device first', 'error');
+        }
+    });
+    
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetTab = this.dataset.tab;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.className = 'bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300';
+            });
+            this.className = 'bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium';
+            
+            // Update panels
+            document.querySelectorAll('.analytics-panel').forEach(panel => {
+                panel.classList.add('hidden');
+            });
+            document.getElementById(targetTab).classList.remove('hidden');
+        });
+    });
+    
+    // Filter control
+    document.getElementById('vitalSignFilter')?.addEventListener('change', refreshAccuracyTrends);
+    document.getElementById('refreshAccuracy')?.addEventListener('click', refreshAccuracyTrends);
+    
+    // Initial data load - only if device is selected
+    setTimeout(() => {
+        if (currentDeviceId) {
+            refreshPredictionHistory();
+            refreshAccuracyTrends();
+        }
+    }, 1000);
+    
+    // Auto-refresh data every 30 seconds - only if device is connected
+    autoRefreshInterval = setInterval(() => {
+        if (currentDeviceId && deviceConnectionStatus === 'connected') {
+            refreshPredictionHistory();
+            refreshAccuracyTrends();
+        }
+    }, 30000);
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    if (deviceDataCheckInterval) {
+        clearInterval(deviceDataCheckInterval);
+    }
+});
+</script>
+{% endblock %}

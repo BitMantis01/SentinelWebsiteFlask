@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}SENTINEL Dashboard{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA==" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        /* ... existing styles ... */
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-radius: 0.375rem;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+            font-weight: 500;
+            text-decoration: none !important;
+        }
+        .sidebar-link:hover {
+            text-decoration: none !important;
+        }
+        .sidebar-link svg {
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+        }
+        .sidebar-link.active {
+            background-color: #4f46e5; /* indigo-600 */
+            color: #ffffff;
+        }
+        .sidebar-link:not(.active) {
+            color: #d1d5db; /* gray-300 */
+        }
+        .sidebar-link:not(.active):hover {
+            background-color: #374151; /* gray-700 */
+            color: #ffffff;
+        }
+        @media (min-width: 1024px) {
+            body {
+                display: flex;
+            }
+            #sidebar {
+                transform: translateX(0) !important;
+                position: sticky;
+                top: 0;
+                height: 100vh;
+            }
+            .main-content-wrapper {
+                flex-grow: 1;
+                overflow-y: auto;
+                height: 100vh;
+            }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-100">
+    <!-- Sidebar -->
+    <div id="sidebar" class="fixed inset-y-0 left-0 w-64 bg-gray-800 text-white flex-shrink-0 flex flex-col transform transition-transform duration-300 ease-in-out z-50 lg:sticky lg:translate-x-0 -translate-x-full">
+        <div class="px-6 py-5 border-b border-gray-700">
+            <div class="flex items-center">
+                <svg class="h-8 w-8 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286zm0 13.036h.008v.008h-.008v-.008z" />
+                </svg>
+                <h1 class="text-xl font-bold ml-3">SENTINEL</h1>
+            </div>
+        </div>
+        <nav class="flex-1 px-4 py-4 space-y-1.5 overflow-y-auto">
+            <a href="{{ url_for('main.summary') }}" class="sidebar-link {% if request.endpoint == 'main.summary' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                <span>Summary</span>
+            </a>
+            <a href="{{ url_for('main.vitals') }}" class="sidebar-link {% if request.endpoint == 'main.vitals' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path></svg>
+                <span>Vitals</span>
+            </a>
+            <a href="{{ url_for('main.predictions') }}" class="sidebar-link {% if request.endpoint == 'main.predictions' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                <span>Predictions</span>
+            </a>
+            <a href="{{ url_for('main.news') }}" class="sidebar-link {% if request.endpoint == 'main.news' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3h.01M17 17h.01"></path></svg>
+                <span>NEWS</span>
+            </a>
+            <a href="{{ url_for('main.sleep_tracking') }}" class="sidebar-link {% if request.endpoint == 'main.sleep_tracking' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                <span>Sleep Tracking</span>
+            </a>
+            <a href="{{ url_for('main.cry_detection') }}" class="sidebar-link {% if request.endpoint == 'main.cry_detection' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
+                <span>Cry Detection</span>
+            </a>
+            <a href="{{ url_for('main.notifications') }}" class="sidebar-link {% if request.endpoint == 'main.notifications' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8a4 4 0 018 0c0 7 3 9 3 9H5s3-2 3-9zM13.73 21a2 2 0 01-3.46 0"/>
+                </svg>
+                <span>Notifications</span>
+            </a>
+            <a href="{{ url_for('main.environment') }}" class="sidebar-link {% if request.endpoint == 'main.environment' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span>Environment</span>
+            </a>
+            <a href="{{ url_for('main.live_feed') }}" class="sidebar-link {% if request.endpoint == 'main.live_feed' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                <span>Live Feed</span>
+            </a>
+            <a href="{{ url_for('main.media_player') }}" class="sidebar-link {% if request.endpoint == 'main.media_player' %}active{% endif %}">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 6l12-3"></path></svg>
+                <span>Media Player</span>
+            </a>
+        </nav>
+        <div class="px-4 py-4 border-t border-gray-700">
+            <a href="{{ url_for('main.profile') }}" class="sidebar-link {% if request.endpoint == 'main.profile' %}active{% endif %}">
+                <img src="{{ current_user.profile_picture if current_user.profile_picture else url_for('static', filename='images/default_profile.png') }}" alt="Profile" class="w-8 h-8 rounded-full mr-3">
+                <div class="flex flex-col">
+                    <span class="font-semibold">{{ current_user.username }}</span>
+                    <span class="text-xs text-gray-400">View Profile</span>
+                </div>
+            </a>
+            <a href="{{ url_for('main.logout') }}" class="sidebar-link mt-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                <span>Logout</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Overlay for mobile -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-60 z-40 hidden lg:hidden"></div>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-content-wrapper flex-1 flex flex-col">
+        <!-- Mobile header -->
+        <header class="bg-white shadow-sm lg:hidden sticky top-0 z-30">
+            <div class="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                <h1 class="text-lg font-semibold text-gray-900">{% block page_title %}Dashboard{% endblock %}</h1>
+                <button id="mobile-menu-btn" class="text-gray-500 focus:outline-none">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+        
+        <main class="flex-1 bg-gray-100">
+            <div class="container mx-auto px-4 py-6 sm:px-6 lg:px-8">
+                <!-- Custom notification container -->
+                <div id="notification-container" class="fixed top-5 right-5 z-50 space-y-3"></div>
+                
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="bg-{{ 'red' if category == 'danger' else category }}-100 border-l-4 border-{{ 'red' if category == 'danger' else category }}-500 text-{{ 'red' if category == 'danger' else category }}-700 p-4 mb-4" role="alert">
+                                <p class="font-bold">{{ category.title() }}</p>
+                                <p>{{ message }}</p>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Modal -->
+    <div id="loading-modal" class="fixed inset-0 custom-modal items-center justify-center hidden z-[100]">
+        <div class="bg-white p-8 rounded-lg shadow-xl text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+            <p class="text-gray-700 font-medium">Loading...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+
+            function openSidebar() {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            }
+
+            function closeSidebar() {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            }
+
+            if (mobileMenuBtn) {
+                mobileMenuBtn.addEventListener('click', openSidebar);
+            }
+            
+            if (overlay) {
+                overlay.addEventListener('click', closeSidebar);
+            }
+        });
+
+        // Custom notification system
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notification-container');
+            if (!container) return;
+            const notification = document.createElement('div');
+            
+            const colors = {
+                success: 'bg-green-500 text-white',
+                error: 'bg-red-500 text-white',
+                warning: 'bg-yellow-500 text-black',
+                info: 'bg-blue-500 text-white'
+            };
+            
+            notification.className = `${colors[type]} px-4 py-3 rounded-md shadow-lg transform transition-all duration-300 translate-x-full opacity-0`;
+            notification.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-lg font-bold">&times;</button>
+                </div>
+            `;
+            
+            container.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full', 'opacity-0');
+            }, 100);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.classList.add('translate-x-full', 'opacity-0');
+                    setTimeout(() => notification.remove(), 300);
+                }
+            }, 5000);
+        }
+
+        // Time formatting functions
+        function formatTimeAgo(timestamp) {
+            const now = new Date();
+            const time = new Date(timestamp + 'Z'); // Add Z to indicate UTC
+            const diff = Math.floor((now - time) / 1000);
+            
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ${diff % 60}s ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+
+        function formatToPhilippineTime(timestamp) {
+            const date = new Date(timestamp + 'Z'); // Add Z to indicate UTC
+            return date.toLocaleString('en-PH', {
+                timeZone: 'Asia/Manila',
+                year: 'numeric',
+                month: 'short',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // Loading modal functions
+        function showLoading() {
+            const modal = document.getElementById('loading-modal');
+            if(modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        function hideLoading() {
+            const modal = document.getElementById('loading-modal');
+            if(modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

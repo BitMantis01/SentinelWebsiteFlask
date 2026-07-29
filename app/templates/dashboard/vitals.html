@@ -1,0 +1,761 @@
+{% extends "dashboard/layout.html" %}
+
+{% block title %}Vitals - SENTINEL Dashboard{% endblock %}
+{% block page_title %}Vitals Monitoring{% endblock %}
+
+{% block head %}
+<!-- Chart.js with date adapter -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+<style>
+    .chart-container {
+        position: relative;
+        height: 350px;
+        width: 100%;
+        margin: 1rem 0;
+    }
+    
+    .status-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    
+    .status-indicator.connected { background: #10b981; }
+    .status-indicator.disconnected { background: #ef4444; }
+    .status-indicator.unknown { background: #6b7280; }
+    
+    .validation-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .validation-valid {
+        background: #dcfce7;
+        color: #166534;
+    }
+    
+    .validation-invalid {
+        background: #fef2f2;
+        color: #dc2626;
+    }
+    
+    .data-filter-btn {
+        transition: all 0.2s ease;
+    }
+    
+    .data-filter-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .current-value-card {
+        transition: all 0.3s ease;
+    }
+    
+    .current-value-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Device Selection -->
+<div class="bg-white p-4 rounded-lg shadow-md mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+        <div class="mb-4 sm:mb-0">
+            <label for="device-select" class="block text-sm font-medium text-gray-700 mb-2">Select Footwear Device:</label>
+            <select id="device-select" class="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">Loading devices...</option>
+            </select>
+        </div>
+        <div class="flex space-x-2">
+            <button onclick="setDataLimit(25, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">25</button>
+            <button onclick="setDataLimit(50, this)" class="data-filter-btn px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">50</button>
+            <button onclick="setDataLimit(100, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">100</button>
+            <button onclick="setDataLimit(0, this)" class="data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300">All</button>
+        </div>
+    </div>
+</div>
+
+<div class="space-y-6">
+    <!-- Current Values -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="current-value-card bg-white p-6 rounded-lg shadow-md text-center">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">Heart Rate</h3>
+            <p id="current-bpm" class="text-3xl font-bold text-red-500 mb-1">--</p>
+            <p class="text-sm text-gray-500 mb-2">BPM</p>
+            <div id="bpm-validation" class="validation-badge"></div>
+            <p class="text-xs text-gray-400 mt-2">Normal: 60-200 BPM</p>
+        </div>
+        <div class="current-value-card bg-white p-6 rounded-lg shadow-md text-center">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">SpO2</h3>
+            <p id="current-spo2" class="text-3xl font-bold text-blue-500 mb-1">--</p>
+            <p class="text-sm text-gray-500 mb-2">%</p>
+            <div id="spo2-validation" class="validation-badge"></div>
+            <p class="text-xs text-gray-400 mt-2">Normal: 80-100%</p>
+        </div>
+        <div class="current-value-card bg-white p-6 rounded-lg shadow-md text-center">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">Temperature</h3>
+            <p id="current-temp" class="text-3xl font-bold text-orange-500 mb-1">--</p>
+            <p class="text-sm text-gray-500 mb-2">°C</p>
+            <div id="temp-validation" class="validation-badge"></div>
+            <p class="text-xs text-gray-400 mt-2">Normal: 32-41°C</p>
+        </div>
+        <div class="current-value-card bg-white p-6 rounded-lg shadow-md text-center">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">Device Status</h3>
+            <div id="device-status" class="flex items-center justify-center mb-2">
+                <span class="status-indicator unknown"></span>
+                <span class="text-sm text-gray-600">Checking...</span>
+            </div>
+            <p id="current-movement" class="text-lg font-semibold text-yellow-500">--</p>
+            <p class="text-xs text-gray-400 mt-2">Movement Detection</p>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-gray-800">Heart Rate Monitor</h2>
+            <div class="text-sm text-gray-500">
+                <span id="heart-rate-status">--</span>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="heartRateChart"></canvas>
+        </div>
+    </div>
+    
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-gray-800">Blood Oxygen Saturation (SpO2)</h2>
+            <div class="text-sm text-gray-500">
+                <span id="spo2-status">--</span>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="spo2Chart"></canvas>
+        </div>
+    </div>
+    
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-gray-800">Body Temperature</h2>
+            <div class="text-sm text-gray-500">
+                <span id="temp-status">--</span>
+            </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+    </div>
+
+    <!-- History Table -->
+    <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">Recent Vitals History</h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full bg-white border border-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Heart Rate</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SpO2</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Temperature</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Movement</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="vitals-history" class="bg-white divide-y divide-gray-200">
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- No Devices Modal -->
+<div id="no-devices-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+            <h3 class="text-lg font-bold text-gray-900">No Footwear Devices</h3>
+            <div class="mt-2 px-7 py-3">
+                <p class="text-sm text-gray-500">
+                    You don't have any footwear monitoring devices linked to your account.
+                    Please contact your administrator to link devices.
+                </p>
+            </div>
+            <div class="items-center px-4 py-3">
+                <button onclick="closeModal('no-devices-modal')" class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-700">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variables
+let heartRateChart, spo2Chart, tempChart;
+let currentDataLimit = 50;
+let refreshInterval;
+
+console.log('Vitals page script loading...');
+
+// Modal functions
+function openModal(modalId) {
+    document.getElementById(modalId).classList.remove('hidden');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+}
+
+// Chart initialization with improved styling and gap handling
+function initCharts() {
+    console.log('Initializing charts...');
+    
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not loaded');
+        return;
+    }
+    
+    try {
+        // Common chart options
+        const baseOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            },
+            elements: {
+                point: {
+                    radius: 4,
+                    hoverRadius: 8,
+                    borderWidth: 2
+                },
+                line: {
+                    tension: 0.3,
+                    borderWidth: 3
+                }
+            },
+            plugins: {
+                legend: { 
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        padding: 20,
+                        usePointStyle: true,
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    titleColor: 'white',
+                    bodyColor: 'white',
+                    cornerRadius: 8,
+                    padding: 12,
+                    displayColors: false,
+                    callbacks: {
+                        title: function(tooltipItems) {
+                            return new Date(tooltipItems[0].label).toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        displayFormats: {
+                            minute: 'HH:mm',
+                            hour: 'HH:mm',
+                            day: 'MMM dd'
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)',
+                        borderDash: [2, 2]
+                    },
+                    ticks: {
+                        maxTicksLimit: 8,
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                y: {
+                    grid: {
+                        color: 'rgba(0,0,0,0.1)',
+                        borderDash: [2, 2]
+                    },
+                    ticks: {
+                        maxTicksLimit: 6,
+                        font: {
+                            size: 11
+                        }
+                    }
+                }
+            }
+        };
+
+        // Heart Rate Chart
+        heartRateChart = new Chart(document.getElementById('heartRateChart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Heart Rate (BPM)',
+                        data: [],
+                        borderColor: '#dc2626',
+                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        fill: true,
+                        spanGaps: false, // Don't connect across gaps
+                        pointBackgroundColor: '#dc2626',
+                        pointBorderColor: '#ffffff',
+                        pointHoverBackgroundColor: '#ffffff',
+                        pointHoverBorderColor: '#dc2626'
+                    }
+                ]
+            },
+            options: {
+                ...baseOptions,
+                scales: {
+                    ...baseOptions.scales,
+                    y: {
+                        ...baseOptions.scales.y,
+                        min: 0,
+                        max: 200,
+                        ticks: {
+                            ...baseOptions.scales.y.ticks,
+                            stepSize: 20,
+                            callback: function(value) {
+                                return value + ' BPM';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // SpO2 Chart
+        spo2Chart = new Chart(document.getElementById('spo2Chart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'SpO2 (%)',
+                        data: [],
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true,
+                        spanGaps: false,
+                        pointBackgroundColor: '#2563eb',
+                        pointBorderColor: '#ffffff',
+                        pointHoverBackgroundColor: '#ffffff',
+                        pointHoverBorderColor: '#2563eb'
+                    }
+                ]
+            },
+            options: {
+                ...baseOptions,
+                scales: {
+                    ...baseOptions.scales,
+                    y: {
+                        ...baseOptions.scales.y,
+                        min: 80,
+                        max: 100,
+                        ticks: {
+                            ...baseOptions.scales.y.ticks,
+                            stepSize: 5,
+                            callback: function(value) {
+                                return value + '%';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Temperature Chart
+        tempChart = new Chart(document.getElementById('tempChart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Temperature (°C)',
+                        data: [],
+                        borderColor: '#ea580c',
+                        backgroundColor: 'rgba(234, 88, 12, 0.1)',
+                        fill: true,
+                        spanGaps: false,
+                        pointBackgroundColor: '#ea580c',
+                        pointBorderColor: '#ffffff',
+                        pointHoverBackgroundColor: '#ffffff',
+                        pointHoverBorderColor: '#ea580c'
+                    }
+                ]
+            },
+            options: {
+                ...baseOptions,
+                scales: {
+                    ...baseOptions.scales,
+                    y: {
+                        ...baseOptions.scales.y,
+                        min: 35,
+                        max: 40,
+                        ticks: {
+                            ...baseOptions.scales.y.ticks,
+                            stepSize: 0.5,
+                            callback: function(value) {
+                                return value.toFixed(1) + '°C';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        console.log('Charts initialized successfully');
+    } catch (error) {
+        console.error('Error initializing charts:', error);
+    }
+}
+
+// Device loading
+function loadDevices() {
+    console.log('Loading devices...');
+    
+    try {
+        const footwearDevices = [{% for device in current_user.footwear_monitors %}"{{ device.device_id }}"{% if not loop.last %},{% endif %}{% endfor %}];
+        const deviceNames = [{% for device in current_user.footwear_monitors %}"{{ device.name }}"{% if not loop.last %},{% endif %}{% endfor %}];
+        
+        const select = document.getElementById('device-select');
+        select.innerHTML = '';
+        
+        if (footwearDevices.length === 0) {
+            select.innerHTML = '<option value="">No footwear devices linked</option>';
+            openModal('no-devices-modal');
+            return;
+        }
+        
+        select.innerHTML = '<option value="">Select a footwear device...</option>';
+        footwearDevices.forEach((deviceId, index) => {
+            const option = document.createElement('option');
+            option.value = deviceId;
+            option.textContent = deviceNames[index] + ' (' + deviceId + ')';
+            select.appendChild(option);
+        });
+        
+        if (footwearDevices.length > 0) {
+            select.value = footwearDevices[0];
+            loadVitalsData();
+            loadCurrentValues();
+        }
+    } catch (error) {
+        console.error('Error loading devices:', error);
+        document.getElementById('device-select').innerHTML = '<option value="">Error loading devices</option>';
+    }
+}
+
+// Load vitals data and update charts
+function loadVitalsData() {
+    const deviceId = document.getElementById('device-select').value;
+    if (!deviceId) return;
+    
+    console.log('Loading vitals data for device:', deviceId, 'with limit:', currentDataLimit);
+    
+    let url = '/api/dashboard/vitals?device_id=' + deviceId;
+    if (currentDataLimit > 0) {
+        url += '&limit=' + currentDataLimit;
+    }
+    
+    fetch(url)
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Vitals data received:', data);
+            updateCharts(data.data);
+            updateHistoryTable(data.data);
+            updateStatusIndicators(data.data);
+        })
+        .catch(error => {
+            console.error('Error loading vitals data:', error);
+        });
+}
+
+// Load current values separately
+function loadCurrentValues() {
+    const deviceId = document.getElementById('device-select').value;
+    if (!deviceId) return;
+    
+    const url = '/api/dashboard/vitals?device_id=' + deviceId + '&limit=1';
+    
+    fetch(url)
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            updateCurrentValues(data.data);
+        })
+        .catch(error => {
+            console.error('Error loading current values:', error);
+        });
+}
+
+// Process data to handle gaps and invalid readings - only add points when ALL 3 vital signs are valid
+function processChartData(data) {
+    if (!data || data.length === 0) return { valid: [], gaps: [] };
+    
+    const validData = [];
+    const gapData = [];
+    
+    data.forEach(d => {
+        const timestamp = new Date(d.timestamp + 'Z');
+        const validation = d.validation || {};
+        
+        // Valid heart rate: 60-200 BPM and validated
+        const validHeartRate = d.bpm >= 60 && d.bpm <= 200 && validation.heart_rate_valid;
+        // Valid SpO2: 80-100% and validated  
+        const validSpO2 = d.spo2 >= 80 && d.spo2 <= 100 && validation.spo2_valid;
+        // Valid temperature: 32-41°C and validated
+        const validTemp = d.temperature >= 32 && d.temperature <= 41 && validation.temperature_valid;
+        
+        // Only add data point if ALL THREE vital signs are valid
+        if (validHeartRate && validSpO2 && validTemp) {
+            validData.push({
+                x: timestamp,
+                bpm: d.bpm,
+                spo2: d.spo2,
+                temperature: d.temperature
+            });
+        } else {
+            // Mark as gap if any vital sign is invalid
+            gapData.push({
+                x: timestamp,
+                y: 50 // Marker position for gaps
+            });
+        }
+    });
+    
+    return { valid: validData, gaps: gapData };
+}
+
+// Update charts with processed data
+function updateCharts(data) {
+    if (!data || data.length === 0) {
+        console.log('No data to display in charts');
+        return;
+    }
+    
+    console.log('Updating charts with', data.length, 'data points');
+    
+    const processedData = processChartData(data);
+    
+    // Update heart rate chart
+    if (heartRateChart) {
+        const heartRateData = processedData.valid.map(d => ({
+            x: d.x,
+            y: d.bpm
+        }));
+        
+        heartRateChart.data.datasets[0].data = heartRateData;
+        heartRateChart.update('none'); // No animation for smoother updates
+        
+        document.getElementById('heart-rate-status').textContent = 
+            `${heartRateData.length} complete valid readings`;
+    }
+    
+    // Update SpO2 chart
+    if (spo2Chart) {
+        const spo2Data = processedData.valid.map(d => ({
+            x: d.x,
+            y: d.spo2
+        }));
+        
+        spo2Chart.data.datasets[0].data = spo2Data;
+        spo2Chart.update('none');
+        
+        document.getElementById('spo2-status').textContent = 
+            `${spo2Data.length} complete valid readings`;
+    }
+    
+    // Update temperature chart
+    if (tempChart) {
+        const tempData = processedData.valid.map(d => ({
+            x: d.x,
+            y: d.temperature
+        }));
+        
+        tempChart.data.datasets[0].data = tempData;
+        tempChart.update('none');
+        
+        document.getElementById('temp-status').textContent = 
+            `${tempData.length} complete valid readings`;
+    }
+}
+
+// Update current values display
+function updateCurrentValues(data) {
+    if (!data || data.length === 0) {
+        document.getElementById('current-bpm').textContent = '--';
+        document.getElementById('current-spo2').textContent = '--';
+        document.getElementById('current-temp').textContent = '--';
+        document.getElementById('current-movement').textContent = '--';
+        return;
+    }
+    
+    const latest = data[0];
+    const validation = latest.validation || {};
+    
+    // Update values with validation
+    document.getElementById('current-bpm').textContent = 
+        validation.heart_rate_valid && latest.bpm > 0 ? latest.bpm : '--';
+    document.getElementById('current-spo2').textContent = 
+        validation.spo2_valid && latest.spo2 > 0 ? latest.spo2 : '--';
+    document.getElementById('current-temp').textContent = 
+        validation.temperature_valid && latest.temperature > 0 ? latest.temperature.toFixed(1) : '--';
+    document.getElementById('current-movement').textContent = 
+        latest.movement ? 'Active' : 'Inactive';
+    
+    // Update validation badges
+    updateValidationBadge('bpm-validation', validation.heart_rate_valid);
+    updateValidationBadge('spo2-validation', validation.spo2_valid);
+    updateValidationBadge('temp-validation', validation.temperature_valid);
+}
+
+// Update validation badge
+function updateValidationBadge(elementId, isValid) {
+    const element = document.getElementById(elementId);
+    if (isValid) {
+        element.className = 'validation-badge validation-valid';
+        element.textContent = '✓ Valid';
+    } else {
+        element.className = 'validation-badge validation-invalid';
+        element.textContent = '✗ Invalid';
+    }
+}
+
+// Update device status indicators
+function updateStatusIndicators(data) {
+    const deviceStatus = document.getElementById('device-status');
+    
+    if (!data || data.length === 0) {
+        deviceStatus.innerHTML = '<span class="status-indicator disconnected"></span><span class="text-sm text-gray-600">No Data</span>';
+        return;
+    }
+    
+    const latest = data[0];
+    const recentTime = new Date() - new Date(latest.timestamp + 'Z');
+    const isRecent = recentTime < 5 * 60 * 1000; // Less than 5 minutes old
+    
+    if (isRecent && (latest.bpm > 0 || latest.spo2 > 0)) {
+        deviceStatus.innerHTML = '<span class="status-indicator connected"></span><span class="text-sm text-gray-600">Connected</span>';
+    } else {
+        deviceStatus.innerHTML = '<span class="status-indicator disconnected"></span><span class="text-sm text-gray-600">Disconnected</span>';
+    }
+}
+
+// Update history table
+function updateHistoryTable(data) {
+    const tbody = document.getElementById('vitals-history');
+    
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">No data available</td></tr>';
+        return;
+    }
+    
+    const historyData = data.slice().reverse().slice(0, 10); // Show newest first, limit to 10
+    
+    tbody.innerHTML = historyData.map(d => {
+        const timestamp = new Date(d.timestamp + 'Z').toLocaleString();
+        const validation = d.validation || {};
+        
+        const bpmDisplay = validation.heart_rate_valid && d.bpm > 0 ? 
+            `${d.bpm} BPM` : '<span class="text-red-500">Invalid</span>';
+        const spo2Display = validation.spo2_valid && d.spo2 > 0 ? 
+            `${d.spo2}%` : '<span class="text-red-500">Invalid</span>';
+        const tempDisplay = validation.temperature_valid && d.temperature > 0 ? 
+            `${d.temperature.toFixed(1)}°C` : '<span class="text-red-500">Invalid</span>';
+        
+        const allValid = validation.all_valid;
+        const statusBadge = allValid ? 
+            '<span class="validation-badge validation-valid">✓ Valid</span>' : 
+            '<span class="validation-badge validation-invalid">✗ Invalid</span>';
+        
+        return `<tr class="hover:bg-gray-50 ${allValid ? '' : 'bg-red-50'}">
+            <td class="py-3 px-4 text-sm text-gray-900">${timestamp}</td>
+            <td class="py-3 px-4 text-sm">${bpmDisplay}</td>
+            <td class="py-3 px-4 text-sm">${spo2Display}</td>
+            <td class="py-3 px-4 text-sm">${tempDisplay}</td>
+            <td class="py-3 px-4 text-sm text-gray-900">${d.movement ? 'Active' : 'Inactive'}</td>
+            <td class="py-3 px-4 text-sm">${statusBadge}</td>
+        </tr>`;
+    }).join('');
+}
+
+// Data limit functions
+function setDataLimit(limit, buttonElement) {
+    currentDataLimit = limit;
+    
+    // Update button styles
+    document.querySelectorAll('.data-filter-btn').forEach(btn => {
+        btn.className = 'data-filter-btn px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300';
+    });
+    
+    if (buttonElement) {
+        buttonElement.className = 'data-filter-btn px-3 py-1 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700';
+    }
+    
+    loadVitalsData();
+}
+
+// Event listeners and initialization
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing vitals page...');
+    
+    try {
+        initCharts();
+        loadDevices();
+        
+        document.getElementById('device-select').addEventListener('change', function() {
+            loadVitalsData();
+            loadCurrentValues();
+        });
+        
+        // Auto-refresh every 30 seconds
+        refreshInterval = setInterval(() => {
+            if (document.getElementById('device-select').value) {
+                loadVitalsData();
+                loadCurrentValues();
+            }
+        }, 30000);
+        
+        console.log('Vitals page initialized successfully');
+    } catch (error) {
+        console.error('Error initializing vitals page:', error);
+    }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+});
+</script>
+{% endblock %}
